@@ -2,7 +2,7 @@
 
 *Consolidated reference combining the original project vision, the refined technical build plan, and current implementation status. Compiled to be handed to another AI assistant or kept as a standalone project reference — it should be self-contained enough that someone (or something) with no other context can pick up the project from here.*
 
-**How to use this document:** Part A is the philosophy and product requirements (why this exists, what it needs to do). Part B is the concrete engineering plan (what to actually build it with, and why). Part C is exactly where the build currently stands. If you're feeding this to a model with a small context window, Parts B and C are the higher-priority ones for continuing engineering work — Part A is background/rationale.
+**How to use this document:** Part A is the philosophy and product requirements (why this exists, what it needs to do). Part B is the concrete engineering plan (what to actually build it with, and why). Part C used to track current build status inline but now just points to `CLAUDE.md` in the repo root, which is the maintained source of truth for that (see C1). If you're feeding this to a model with a small context window: read `CLAUDE.md` first for exactly where the build stands and what to do next, then Part B here for the "why" behind stack choices, then Part A for background/rationale.
 
 ---
 
@@ -503,35 +503,27 @@ Vectorized numpy/scipy using **block bootstrap of historical returns** or a fitt
 
 *This is where the project actually stands. Read this section first if picking up the work.*
 
-## C1. What exists right now
+## C1. Where this section moved
 
-`wealthai-starter/` — the first real slice of **Part A §14 (Portfolio Construction)** and **§11 (Standardizing Asset Classes)**, a genuine, running mean-variance optimizer. Three files plus `requirements.txt`:
+Part C used to duplicate the repo's implementation status here. That
+became a maintenance hazard: this file drifted out of sync with the
+actual filesystem once, badly enough that a later session pasted a
+`CLAUDE.md` describing files that didn't exist yet and modules marked
+"Verified" that had never been run. Never let that happen again.
 
-- **`synthetic_data.py`** — generates placeholder multi-asset daily price history (Global Equities, Bonds, Gold, REITs, Crypto, Cash) via correlated multivariate-normal returns, calibrated to plausible long-run return/volatility/correlation assumptions. Explicitly a stand-in for a real vendor (see B2.4) until API access is set up — every other file just consumes a DataFrame of prices and doesn't care where they came from.
-- **`portfolio_optimizer.py`** — real implementation using PyPortfolioOpt: `mean_historical_return` for expected returns, `CovarianceShrinkage().ledoit_wolf()` for the risk model, and a constrained `EfficientFrontier` optimizer. `risk_tolerance` (0–1) now selects a point along the constrained efficient frontier — interpolating target volatility between the min-volatility portfolio and the highest-return portfolio still feasible under the client's crypto cap / cash floor — rather than always solving for global max-Sharpe. Also computes efficient-frontier points for visualization.
-- **`main.py`** — runs two client profiles (mirroring "Client A" and "Client B" from Part A §2) through the same synthetic market data and prints both allocations side by side, to demonstrate that different risk tolerances actually produce different portfolios.
+**`CLAUDE.md` in the repo root is now the single source of truth for
+implementation status, the non-negotiable principles, and the
+step-by-step plan for what's next.** Read it, not this section, for
+"what's actually built." This document (`MASTER_PLAN.md`) stays the
+philosophy/rationale reference — Parts A and B above don't change based
+on implementation progress, so they're stable to keep here.
 
-Verified working: `python3 main.py` runs end to end and produces two visibly different allocations for the two client profiles (confirmed on the run that implemented this — see C2 below).
-
-## C2. Findings from running it (still relevant — read before touching the optimizer)
-
-1. **Estimation-error instability (Part A §43, Challenge 1).** With only ~5 years of synthetic history, sample-mean return estimates for some assets came out inconsistent with the generator's true underlying assumptions purely from sampling noise (e.g. Global Equities dropped out of both client portfolios entirely in one run despite a +8%/year true assumption baked into `synthetic_data.py`). This is the optimizer responding correctly to noisy input, not a bug — and it's the live justification for Part B's later move to Black-Litterman-style blending of historical data with other views instead of raw historical averages alone.
-2. **The "one portfolio for everyone" gap — now fixed.** `optimize_portfolio()` previously always solved for the single max-Sharpe (tangency) portfolio regardless of client risk tolerance, which contradicted Part A §2's central thesis. `risk_tolerance` now maps to a target point on the frontier (see C1). This was verified by running Client A (risk_tolerance=0.85) vs Client B (risk_tolerance=0.20) through identical market data and confirming materially different volatility/allocation output.
-
-## C3. Not yet started
-
-Everything else in Part A/B, notably: real data vendor connection, database layer (Postgres/TimescaleDB, point-in-time schema), NLP/LLM pipeline, tax engine, ethical screening logic, Monte Carlo goal simulation, risk/scenario engine, explainability layer, human-review workflow, any UI beyond printed console output, and the entire regulatory/licensing determination.
-
-## C4. Immediate next step
-
-With per-client frontier positioning working, the next highest-leverage additions are, in order:
-1. **Monte Carlo goal simulation** (Part A §16) — the client profile has no goals yet (target amount/date), and there's no probability-of-success output, which is central to the platform's value proposition.
-2. **Ethical/exclusion constraints** (Part A §20) — currently only crypto cap and cash floor are wired into the optimizer; tobacco/weapons/gambling/fossil-fuel exclusions need an asset-level tag and a corresponding `add_constraint` in `portfolio_optimizer.py`.
-3. **Point-in-time data schema** (Part B §B2.3) — still the highest-leverage schema decision and the most expensive to retrofit; worth doing before real vendor data replaces `synthetic_data.py`, not after.
-
-## C5. Open decisions for continued work
-
-- Which data vendor to actually sign up for first (Financial Modeling Prep vs. Tiingo — both viable, no technical blocker either way)
-- Methodology for combining risk *tolerance* and risk *capacity* (Part A §6) into a single number the optimizer can use, versus keeping them as separate, occasionally-conflicting inputs
-- Whether to engage Singapore regulatory counsel now (Part B §3 recommends Stage 1) or defer until the prototype is further along
-- How aggressively to scope the Stage-2 NLP pipeline — full entity/event extraction is a substantial build; a narrower first version (e.g., just sentiment + basic entity tagging on a small curated source list) may be a better next milestone than the full pipeline in Part A §8
+As of the most recent session: the full local pipeline (client
+profiling with risk-capacity-caps-tolerance, the frontier-positioned
+optimizer, a risk engine, stress testing, Monte Carlo goal simulation,
+and deterministic explainability) is built, wired together in
+`main.py`, and covered by a 12-check test suite that passes. A real
+data-vendor integration (Tiingo) is written but unverified — see
+`CLAUDE.md` Section 3 for exactly why. Everything from the NLP/LLM
+evidence layer downward in the Part A §51 architecture remains
+unbuilt; `CLAUDE.md` Section 5 has the ordered plan to get there.
