@@ -1,28 +1,32 @@
-"""Stage 1 research prototype entry point (master plan Part C / CLAUDE.md §2).
+"""Entry point: run client profiles through the full built pipeline.
 
-Runs two client profiles -- mirroring "Client A" (young, high risk
-tolerance) and "Client B" (near-retirement, low risk tolerance) from the
-master plan's Part A §2 -- through the full built pipeline:
+    ClientProfile -> constraints (crypto cap, illiquidity cap, ethical
+        exclusions, cash floor) -> effective_risk_score -> portfolio
+        optimizer -> risk engine -> stress tests -> goal simulation ->
+        tax drag -> explanation
 
-    ClientProfile -> effective_risk_score -> portfolio optimizer
-        -> risk engine -> stress tests -> goal simulation -> explanation
-
-Same market data, same crypto/cash constraints, different risk profiles
--> different portfolios. That divergence is the whole point (see
-CLAUDE.md Section 1).
+Two example clients -- mirroring "Client A" (young, high risk
+tolerance) and "Client B" (near-retirement, low risk tolerance) from
+the original project brief -- run through identical market data and
+constraints structure but different profiles. That the two portfolios
+come out different is the point: same market, different investor,
+different plan.
 """
 
 from __future__ import annotations
 
 from datetime import date
 
+import universe
 from client_profile import ClientProfile, Goal
 from data_source import get_prices
 from explainability import generate_explanation
 from goal_simulator import simulate_goal_probability
-from portfolio_optimizer import PortfolioResult, optimize_portfolio
+from house_view import prior_returns_series
+from portfolio_optimizer import Constraints, PortfolioResult, optimize_portfolio
 from risk_engine import compute_risk_metrics
 from stress_test import run_stress_tests
+from tax import estimate_after_tax_return
 
 CLIENT_A = ClientProfile(
     name="Client A",
@@ -36,8 +40,10 @@ CLIENT_A = ClientProfile(
     income_stability=0.8,
     debt_to_income=0.15,
     goals=[Goal(name="Retirement", target_amount=2_500_000, target_date=date(2056, 1, 1))],
-    crypto_cap=0.05,
+    crypto_cap=0.08,
+    illiquid_cap=0.25,
     min_cash=0.05,
+    tax_jurisdiction="us_taxable",
 )
 
 CLIENT_B = ClientProfile(
@@ -52,20 +58,40 @@ CLIENT_B = ClientProfile(
     income_stability=0.7,
     debt_to_income=0.05,
     goals=[Goal(name="Retirement", target_amount=1_800_000, target_date=date(2033, 1, 1))],
-    crypto_cap=0.05,
-    min_cash=0.05,
+    crypto_cap=0.03,
+    illiquid_cap=0.15,
+    min_cash=0.08,
+    excluded_sectors=["tobacco", "weapons"],
+    tax_jurisdiction="singapore",
 )
 
 
-def run_for_client(client: ClientProfile, prices) -> dict:
-    result: PortfolioResult = optimize_portfolio(
-        prices,
-        risk_tolerance=client.effective_risk_score,
-        crypto_cap=client.crypto_cap,
+def build_constraints(client: ClientProfile) -> Constraints:
+    """Turn a client profile into the concrete feasible region the
+    optimizer solves over -- the only place client fields get translated
+    into universe.py's ticker groupings."""
+    crypto_tickers = {t for t, cls in universe.ASSET_CLASS_OF.items() if cls == "Crypto"}
+    illiquid_tickers = universe.illiquid_tickers()
+    return Constraints(
         min_cash=client.min_cash,
+        cash_ticker="CASH",
+        group_caps={"Crypto": client.crypto_cap, "Illiquid": client.illiquid_cap},
+        groups={"Crypto": crypto_tickers, "Illiquid": illiquid_tickers},
+        excluded_tickers=universe.tickers_matching_sectors(client.excluded_sectors),
+    )
+
+
+def run_for_client(client: ClientProfile, prices) -> dict:
+    constraints = build_constraints(client)
+    result: PortfolioResult = optimize_portfolio(
+        prices, risk_tolerance=client.effective_risk_score, constraints=constraints,
+        expected_returns_prior=prior_returns_series(),
     )
     risk_metrics = compute_risk_metrics(prices, result.weights)
     stress_results = run_stress_tests(result.weights)
+    tax_result = estimate_after_tax_return(
+        result.weights, result.expected_annual_return, jurisdiction=client.tax_jurisdiction,
+    )
 
     goal = client.goals[0] if client.goals else None
     goal_result = None
@@ -73,7 +99,7 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         goal_result = simulate_goal_probability(
             initial_capital=client.liquid_assets,
             annual_contribution=client.annual_income * 0.15,
-            expected_return=result.expected_annual_return,
+            expected_return=tax_result["net_expected_return"],
             annual_volatility=result.annual_volatility,
             years=goal.years_remaining(),
             target_amount=goal.target_amount,
@@ -91,6 +117,7 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         risk_metrics=risk_metrics,
         goal_result=goal_result,
         excluded_sectors=client.excluded_sectors,
+        tax_result=tax_result,
     )
 
     return {
@@ -98,6 +125,7 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         "risk_metrics": risk_metrics,
         "stress_results": stress_results,
         "goal_result": goal_result,
+        "tax_result": tax_result,
         "explanation": explanation,
     }
 
@@ -108,12 +136,19 @@ def print_report(client: ClientProfile, report: dict) -> None:
         f"\n=== {client.name} (age {client.age}, tolerance={client.risk_tolerance:.2f}, "
         f"capacity={client.risk_capacity:.2f}, effective={client.effective_risk_score:.2f}) ==="
     )
-    for asset, weight in sorted(result.weights.items(), key=lambda kv: -kv[1]):
-        if weight > 0.0001:
-            print(f"  {asset:<18} {weight:6.1%}")
-    print(f"  Expected annual return: {result.expected_annual_return:6.1%}")
-    print(f"  Annual volatility:      {result.annual_volatility:6.1%}")
-    print(f"  Sharpe ratio:           {result.sharpe_ratio:6.2f}")
+    for ticker, weight in sorted(result.weights.items(), key=lambda kv: -kv[1]):
+        if weight > 0.0005:
+            name = next((i.name for i in universe.UNIVERSE if i.ticker == ticker), ticker)
+            print(f"  {name:<32} {weight:6.1%}")
+    print(f"  Expected annual return (gross): {result.expected_annual_return:6.1%}")
+    print(f"  Annual volatility:              {result.annual_volatility:6.1%}")
+    print(f"  Sharpe ratio:                   {result.sharpe_ratio:6.2f}")
+
+    tr = report["tax_result"]
+    print(
+        f"  Tax drag ({tr['jurisdiction_label']}): -{tr['total_tax_drag']:.2%} -> "
+        f"net expected return {tr['net_expected_return']:.1%}"
+    )
 
     rm = report["risk_metrics"]
     print(
@@ -138,7 +173,7 @@ def print_report(client: ClientProfile, report: dict) -> None:
 def main() -> None:
     prices, data_version = get_prices(years=5, seed=42)
     print(f"Data source: {data_version}")
-    print(f"Generated {len(prices)} days of prices for: {list(prices.columns)}")
+    print(f"{len(prices.columns)} instruments across the universe: {list(prices.columns)}")
 
     report_a = run_for_client(CLIENT_A, prices)
     report_b = run_for_client(CLIENT_B, prices)

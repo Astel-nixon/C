@@ -1,4 +1,4 @@
-"""Property-based checks on the API + storage layer (CLAUDE.md Principle 5).
+"""Property-based checks on the API + storage layer.
 
 Same pattern as test_pipeline.py: plain asserts, one isolated temp
 SQLite DB per check via FastAPI's in-process TestClient -- no real
@@ -128,6 +128,63 @@ def _():
     with _fresh_client() as client:
         bad = dict(SAMPLE_CLIENT, risk_tolerance=1.5)  # out of [0, 1] range
         r = client.post("/clients", json=bad)
+        assert r.status_code == 422
+
+
+@check("ethical exclusions applied through the API produce a zero weight")
+def _():
+    with _fresh_client() as client:
+        payload = dict(SAMPLE_CLIENT, excluded_sectors=["tobacco", "weapons", "gambling"])
+        created = client.post("/clients", json=payload).json()
+        rec = client.post(f"/clients/{created['id']}/recommendations").json()
+        for ticker in ("TOBACCO_EQUITY", "DEFENSE_EQUITY", "CASINO_EQUITY"):
+            assert rec["weights"].get(ticker, 0.0) < 1e-3, f"{ticker} should be excluded"
+
+
+@check("tax jurisdiction changes the net expected return via the API")
+def _():
+    with _fresh_client() as client:
+        taxed = dict(SAMPLE_CLIENT, name="Taxed", tax_jurisdiction="us_taxable")
+        untaxed = dict(SAMPLE_CLIENT, name="Untaxed", tax_jurisdiction="none")
+        c1 = client.post("/clients", json=taxed).json()
+        c2 = client.post("/clients", json=untaxed).json()
+        rec1 = client.post(f"/clients/{c1['id']}/recommendations").json()
+        rec2 = client.post(f"/clients/{c2['id']}/recommendations").json()
+        assert rec1["tax_result"]["total_tax_drag"] >= 0.0
+        assert rec2["tax_result"]["total_tax_drag"] == 0.0
+
+
+@check("review queue: submit, list pending, decide, then previous_weights carries forward")
+def _():
+    with _fresh_client() as client:
+        created = client.post("/clients", json=SAMPLE_CLIENT).json()
+        rec1 = client.post(f"/clients/{created['id']}/recommendations").json()
+
+        review1 = client.post(f"/recommendations/{rec1['id']}/submit-for-review").json()
+        assert review1["status"] == "pending"
+        assert review1["previous_weights"] is None  # nothing approved yet
+
+        pending = client.get("/reviews", params={"status": "pending"}).json()
+        assert len(pending) == 1
+
+        decided = client.post(
+            f"/reviews/{review1['id']}/decide", json={"decision": "approved", "reviewer_note": "ok"}
+        ).json()
+        assert decided["status"] == "approved"
+        assert decided["reviewer_note"] == "ok"
+
+        rec2 = client.post(f"/clients/{created['id']}/recommendations").json()
+        review2 = client.post(f"/recommendations/{rec2['id']}/submit-for-review").json()
+        assert review2["previous_weights"] == rec1["weights"]
+
+
+@check("review decision rejects an invalid decision value")
+def _():
+    with _fresh_client() as client:
+        created = client.post("/clients", json=SAMPLE_CLIENT).json()
+        rec = client.post(f"/clients/{created['id']}/recommendations").json()
+        review = client.post(f"/recommendations/{rec['id']}/submit-for-review").json()
+        r = client.post(f"/reviews/{review['id']}/decide", json={"decision": "maybe"})
         assert r.status_code == 422
 
 

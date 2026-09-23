@@ -1,4 +1,4 @@
-# CLAUDE.md — AI-Powered Multi-Asset Wealth Management Platform
+# CLAUDE.md — Wealth Planning Platform
 
 ## Read this first
 
@@ -20,274 +20,264 @@ say so and propose the fix — this document is a starting point for a
 session, not a contract to follow past the point it stops making sense.
 
 The full philosophy/rationale document (product vision, technical stack
-choices with alternatives considered, Singapore regulatory framework)
-lives at `MASTER_PLAN.md` in the repo root. This file is the tighter,
-engineering-focused companion — read `MASTER_PLAN.md` for the "why"
-behind a decision below; read this file for "what's actually built."
+choices with alternatives considered) lives at `MASTER_PLAN.md` in the
+repo root. This file is the tighter, engineering-focused companion —
+read `MASTER_PLAN.md` for the "why" behind a decision below; read this
+file for "what's actually built."
+
+**Project framing:** this is a personal/portfolio engineering project —
+a demonstration of the modeling and system design involved in
+wealth-management software, not a regulated financial business. There
+is no licensing, custody, or compliance layer, and none is planned.
+Nothing here produces real investment advice or executes real trades.
 
 ---
 
 ## 1. What this is
 
-An AI-powered wealth-management and investment-intelligence platform.
-It evaluates a client's financial circumstances, goals, constraints,
-risk profile, and tax situation, then constructs a personalized
-multi-asset portfolio — evidence-backed and risk-aware, not a
-stock-picking chatbot.
+A wealth-planning platform. Given a person's financial circumstances,
+goals, constraints, and risk profile, it evaluates a broad multi-asset
+universe and constructs a personalized portfolio — evidence-backed and
+risk-aware, not a stock-picking chatbot.
 
 The core thesis: **the optimal investment is not universal, it depends
-on the investor.** Two clients looking at exactly the same market
-should get different recommendations. A 28-year-old with a long
-horizon and high risk tolerance and a 57-year-old retiring in seven
-years should never land on the same portfolio just because they asked
-the same system on the same day. Every architectural decision below
-serves that thesis — the client profile is a first-class input into
-optimization, not a label applied after the fact.
+on the investor.** Two people looking at exactly the same market should
+get different recommendations. A 28-year-old with a long horizon and
+high risk tolerance and a 57-year-old retiring in seven years should
+never land on the same portfolio just because they asked the same
+system on the same day. Every architectural decision below serves that
+thesis — the client profile is a first-class input into optimization,
+not a label applied after the fact.
 
 The second design rule, equally load-bearing: **LLMs interpret
 information; quantitative models measure it; optimization makes
-decisions under constraints; humans retain oversight.** An LLM is never
-allowed to output a number that reaches a client directly. If a future
-session is tempted to let an LLM produce "expected return: 9%" or
-similar, that's the point to stop and route it through a real model
-instead. Nothing in this repo currently calls an LLM at all — that's
-correct for where the build is (see Section 3).
+decisions under constraints; humans retain oversight.** Nothing is
+allowed to output a number that reaches a client directly without
+passing through a real model. `evidence.py` (the NLP layer skeleton)
+produces sentiment and event tags, never a return, a price target, or a
+probability — see Section 4, Principle 1.
 
 ---
 
 ## 2. How it's supposed to work — the full pipeline
 
-This is the target architecture. Sections below mark what's built vs.
-not yet.
-
 ```
-Client Profile (age, goals, risk tolerance/capacity, liquidity,
-                tax jurisdiction, ethical constraints)                    [BUILT]
+Client Profile (age, goals, risk tolerance/capacity, liquidity,             [BUILT]
+                tax jurisdiction, ethical exclusions)
         │
         ▼
-Effective Risk Score (risk capacity CAPS risk tolerance — a client       [BUILT]
-        │             can't be pushed past what their situation can
-        │             actually absorb, regardless of stated comfort)
-        ▼
-Investment Universe (currently: 6 broad asset classes. Target:          [PARTIAL]
-        │             individual securities within each class, which
-        │             is what makes ethical/ESG screening meaningful)
-        ▼
-Portfolio Optimizer (positions the client at the point on the           [BUILT]
-        │             efficient frontier matching their risk score —
-        │             NOT always the max-Sharpe portfolio. Two clients
-        │             with different scores get different portfolios,
-        │             which is the whole point)
-        ▼
-Risk Engine (Sharpe, Sortino, max drawdown, VaR/CVaR — computed on the   [BUILT]
-        │    chosen portfolio's own realized return series, not assumed)
-        ▼
-Stress Testing (scenario shocks — equity crash, rate shock, inflation,  [BUILT]
-        │        recession, crypto crash — applied to the actual weights)
-        ▼
-Goal Simulation (Monte Carlo, fat-tailed distribution — probability of  [BUILT]
-        │         reaching a stated goal, not a single-point forecast)
-        ▼
-Explainability (plain-English rationale, generated deterministically    [BUILT]
-        │        from the numbers already computed above — no LLM call,
-        │        nothing here is a new estimate)
+Effective Risk Score (risk capacity CAPS risk tolerance)                    [BUILT]
         │
-        │  ┌─── NOT YET BUILT, target architecture from here down ───┐
-        ▼  ▼
-NLP/LLM Evidence Layer (turns news/filings into structured, schema-
-        │               validated evidence that feeds opportunity
-        │               scoring BEFORE optimization — never a number
-        │               injected directly into the pipeline)
         ▼
-Human Investment Review (a queue with a diff view — proposed vs.
-        │                 current portfolio, plus the evidence bundle.
-        │                 Not optional, not a rubber stamp)
+Investment Universe (22 instruments across Equity, Bonds, Commodities,      [BUILT]
+        │             Real Estate -- listed and direct, Private Markets --
+        │             equity and credit, Crypto, Cash. See universe.py.)
         ▼
-Execution & Monitoring (continuous re-evaluation as markets and client
-                         circumstances change)
+Constraints (crypto cap, illiquidity cap, per-position concentration        [BUILT]
+        │     cap, ethical sector exclusions, cash floor -- all generic
+        │     ticker-group mechanics, see portfolio_optimizer.Constraints)
+        ▼
+Portfolio Optimizer (positions the client at the point on the efficient     [BUILT]
+        │             frontier matching their risk score, using return
+        │             estimates shrunk toward a house-view prior rather
+        │             than raw historical means -- see Section 4 §7)
+        ▼
+Risk Engine (Sharpe, Sortino, max drawdown, VaR/CVaR on the chosen          [BUILT]
+        │    portfolio's own realized return series)
+        ▼
+Stress Testing (six scenarios, shocked at the asset-class level)            [BUILT]
+        ▼
+Tax Drag (jurisdiction-configurable income + realized-gains tax             [BUILT]
+        │  estimate, reducing gross to net expected return)
+        ▼
+Goal Simulation (Monte Carlo, Student-t fat tails, on the net-of-tax        [BUILT]
+        │         return -- probability of reaching a stated goal)
+        ▼
+Explainability (plain-English rationale, generated deterministically       [BUILT]
+        │        from the numbers already computed above -- no LLM call)
+        ▼
+NLP/LLM Evidence Layer (schema-validated sentiment/event extraction,        [BUILT,
+        │               rule-based lexicon extractor by default --         NOT WIRED
+        │               produces Evidence records but nothing downstream   INTO THE
+        │               consumes them yet. See Section 4 §8.)              OPTIMIZER]
+        ▼
+Human Investment Review (a queue table + approve/reject workflow with      [BUILT]
+        │                 a proposed-vs-previous weights diff. No
+        │                 execution endpoint exists anywhere to bypass.)
+        ▼
+Execution & Monitoring                                                      [NOT BUILT,
+                                                                              NOT PLANNED]
 ```
 
 **Why this order, not some other order:** the risk score has to exist
 before optimization (it's the input, not a post-hoc label); risk/stress/
-goal analysis has to happen on the *actual chosen* portfolio, not a
+tax/goal analysis has to happen on the *actual chosen* portfolio, not a
 generic one, which is why they come after the optimizer, not before;
-explainability comes last because it explains real computed numbers —
-it would be backwards (and dishonest) for it to generate prose that
-the numbers are then bent to match.
+explainability comes last because it explains real computed numbers.
 
 ---
 
 ## 3. Current repo state — what's actually real
 
-Be precise here. "Written" and "verified" are different claims.
-Everything below was implemented and run in this session, most
-recently on 2026-09-23; `test_pipeline.py` (12 checks), `test_api.py`
-(9 checks), and `main.py` all pass/run cleanly as of that commit, and
-the API was additionally confirmed booting under a real `uvicorn`
-server and answering real HTTP requests via `curl` — not just
-FastAPI's in-process `TestClient`.
+Be precise here. "Written" and "verified" are different claims. All
+`.py` files below were implemented and run in this session (2026-09-23);
+`test_pipeline.py` (17 checks) and `test_api.py` (13 checks) both pass,
+`main.py` runs cleanly end to end, and the API was confirmed both via
+FastAPI's `TestClient` and booting under a real `uvicorn` process.
 
 | File | Status |
 |---|---|
-| `synthetic_data.py` | **Verified.** Placeholder multi-asset price generator. Every downstream module only depends on a DataFrame of prices — swapping the source changes nothing else. |
-| `data_vendor.py` | **Written, NOT verified.** Real Tiingo integration, follows the documented API shape. Never successfully executed against the live API: this environment's egress proxy rejects connections to `api.tiingo.com` outright (organization policy — confirmed via a direct `curl`, independent of having an API key), so it couldn't even be smoke-tested here. Run it yourself, outside this sandbox, with a real `TIINGO_API_KEY`, and confirm the output shape matches `synthetic_data.py`'s before trusting it anywhere. |
-| `data_source.py` | **Verified for the synthetic path only.** Single switch point (`get_prices()`, gated by `USE_REAL_DATA=1`) used by both `main.py` and `api.py` so they don't each reimplement the branch. The synthetic branch is exercised by every test in the repo. The real-data branch inherits `data_vendor.py`'s unverified status above — flipping the flag is wired but untested. |
-| `client_profile.py` | **Verified.** `ClientProfile`/`Goal` dataclasses; `effective_risk_score` implements capacity-caps-tolerance, checked explicitly in `test_pipeline.py` (not just capacity-caps-tolerance, but that it's *not* the average of the two). |
-| `portfolio_optimizer.py` | **Verified**, including the target-return-ceiling issue: the max-feasible-return endpoint is found via a bounded search over `efficient_return()` (`_max_feasible_return`) rather than naively using `mu.max()`, so the crypto-cap/cash-floor constraints are respected even at `risk_tolerance=1.0`. Confirmed by test: crypto cap and cash floor both hold across the full 0–1 risk-tolerance range. |
-| `risk_engine.py` | **Verified.** Sharpe/Sortino/drawdown/VaR/CVaR, computed directly, not via a library — small enough set of formulas that a direct implementation is easier to audit than a dependency. |
-| `goal_simulator.py` | **Verified.** Monte Carlo with a Student-t (fat-tailed) shock distribution, deliberately not i.i.d. normal; variance rescaled so volatility matches the requested input regardless of degrees of freedom. |
-| `stress_test.py` | **Verified.** Five illustrative scenarios. Shock magnitudes are illustrative, not calibrated to historical analogues yet (see Step 6 below). |
-| `explainability.py` | **Verified.** Rule-based templating only — deliberately not an LLM call (see Section 1). |
-| `db.py` | **Verified.** Plain `sqlite3`, not an ORM. Schema: `clients`, `goals`, `recommendations` (weights/risk-metrics/stress-results/goal-result as JSON columns, plus `code_version` — real git short SHA, pulled via `git rev-parse --short HEAD` — and `data_version` audit fields). Client save/fetch and recommendation save/fetch/list all round-tripped correctly in a smoke test against a temp file DB before `api.py` was built on top of it. |
-| `api.py` | **Verified.** FastAPI app: `POST /clients`, `GET /clients/{id}`, `POST /clients/{id}/recommendations` (runs the full pipeline and persists it), `GET /clients/{id}/recommendations`, `GET /recommendations/{id}`, `GET /health`. Deliberately has no execution endpoint — see Principle 6. Confirmed working both via `TestClient` and via a real `uvicorn` process hit with `curl`. |
-| `test_pipeline.py` | **Verified.** 12 checks on properties that matter (weights sum to 1, crypto cap/cash floor hold at every risk tolerance, frontier is monotonic non-decreasing in return, risk capacity caps rather than averages tolerance, VaR/CVaR ordering, goal probabilities bounded 0–1, full pipeline runs end-to-end) rather than just "did it execute." All 12 pass. Keep this green; extend it for every new module. |
-| `test_api.py` | **Verified.** 9 checks against the API using an isolated temp SQLite DB per check (health, client creation/validation including a 422 on an out-of-range `risk_tolerance`, 404s on unknown ids, recommendation persistence round-trip, list growth across repeated requests, and that two differently-profiled clients get different volatility through the live API, not just through `main.py`). All 9 pass. |
-| `main.py` | **Verified.** Runs two example clients (mirroring the original "Client A"/"Client B" personas, now with actual `Goal`s) through the full built pipeline via `data_source.get_prices()` and prints a report including risk metrics, stress results, goal probability, and the generated explanation. |
-| `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** `export_frontier.py` precomputes a 41-point risk-tolerance grid (weights/return/vol/Sharpe at each point) in Python and writes it into a self-contained static HTML page (`wealth_demo.html`, generated — not committed as a separate source artifact, regenerate via `python3 export_frontier.py`). The page is a plain SVG chart + slider with no server and no CDN dependency, so it opens directly from a local `file://` path. Confirmed the embedded JSON is well-formed and the placeholder markers are fully substituted. Not yet wired to call the live API — it still reads its own precomputed grid, not `api.py`. |
+| `universe.py` | **Verified.** 22 instruments across Equity (8, including sector-tagged ones for exclusion testing), Bonds (4), Commodities (3), Real Estate (2 -- listed REITs and unlisted direct real estate), Private Markets (2 -- private equity and private credit), Crypto (2), Cash. Returns generated from a 6-factor statistical model (Equity/Rates/Credit/Commodity/Crypto/RealAsset), with the factor correlation matrix checked for positive-semidefiniteness at import time. Private equity, private credit, and direct real estate get an AR(1) appraisal-smoothing pass on top (Geltner-style), which is *why* their reported volatility comes out well below their target volatility in a test run -- confirmed deliberately, not a bug (see the module docstring). |
+| `estimators.py` | **Verified.** James-Stein-style shrinkage of expected returns, generalized to shrink toward an external prior (defaults to the cross-sectional grand mean if none given) rather than plain historical means. Shrinkage intensity is capped at 90%, not 100% -- full shrinkage makes every asset's expected return identical, which leaves "highest-return portfolio" undefined. Confirmed this cap binds often even at 20 years of simulated daily history for a 22-asset universe, which is itself a real, well-known result (distinguishing expected returns from price noise takes far more data than most people assume), not a parameter-tuning artifact. |
+| `house_view.py` | **Verified.** The shrinkage prior: one illustrative long-run return assumption per asset class (the kind every wealth manager publishes annually), deliberately *not* derived from `universe.py`'s own generating parameters -- if it were, the shrinkage would just be recovering the answer key instead of doing real estimation work. |
+| `data_vendor.py` | **Written, NOT verified.** Real Tiingo (equities/ETFs/bonds/commodities/REITs, via each instrument's `real_ticker`) + CoinGecko (crypto, no key required) integration. Never executed against either live API: this sandbox's egress policy rejects outbound connections to every external host tested, Tiingo and CoinGecko included (confirmed via direct `curl`, independent of holding an API key). See Section 5 Step 1 and the vendor connect guide below for what running this for real actually takes. |
+| `data_source.py` | **Verified for the synthetic path only.** Single `USE_REAL_DATA` switch point used by both `main.py` and `api.py`. The real-data branch inherits `data_vendor.py`'s unverified status. |
+| `client_profile.py` | **Verified.** `ClientProfile`/`Goal` dataclasses; `effective_risk_score` implements capacity-caps-tolerance (checked explicitly, including that it's *not* the average of the two); `crypto_cap`, `illiquid_cap`, `min_cash`, `excluded_sectors`, `tax_jurisdiction` all flow through to the optimizer and tax estimator. |
+| `portfolio_optimizer.py` | **Verified.** `Constraints` dataclass expresses crypto cap, illiquidity cap, ethical exclusions, cash floor, and a per-position concentration cap (default 30%, cash exempt) all as generic named ticker-groups-with-a-cap -- the module itself doesn't know what "crypto" means, `universe.py` and the caller decide the groupings. `risk_tolerance` maps to a target point on the frontier via the min-vol/max-feasible-return endpoints, with a defensive fallback chain (max-Sharpe, then min-vol) for the case where heavy shrinkage makes "highest return" nearly undefined -- this edge case was hit and fixed during this session, not theoretical. |
+| `risk_engine.py` | **Verified.** Sharpe/Sortino/drawdown/VaR/CVaR, computed directly on the portfolio's own realized return series. |
+| `tax.py` | **Verified.** Five illustrative jurisdiction profiles (`none`, `us_taxable`, `uk`, `singapore`, `india`) -- flat, simplified rates standing in for real bracketed/situational rules, explicitly labeled as such, not tax advice. Drag = tax on income received (per-instrument `income_yield` in `universe.py`, routed to a dividend or interest rate depending on asset class) + tax on gains actually realized through assumed rebalancing turnover, at a short- or long-term rate depending on assumed holding period. Confirmed Singapore's profile matches the zero-tax baseline, matching how Singapore actually treats individual investors. |
+| `stress_test.py` | **Verified.** Six scenarios (added a Liquidity Crunch scenario alongside the original five), shocks applied per asset class via `universe.ASSET_CLASS_OF` rather than hardcoded ticker names -- necessary once the universe grew past a handful of instruments. Magnitudes are illustrative, not calibrated to specific historical analogues yet. |
+| `goal_simulator.py` | **Verified.** Monte Carlo with a Student-t (fat-tailed) shock distribution, deliberately not i.i.d. normal; now fed the *net-of-tax* expected return from `tax.py`, not the gross optimizer output. |
+| `explainability.py` | **Verified.** Rule-based templating only -- deliberately not an LLM call. Now also narrates the tax-drag line when nonzero, and uses human-readable instrument names via `universe.py` instead of raw tickers. |
+| `evidence.py` | **Verified, NOT wired into the optimizer.** `Evidence` schema deliberately has no numeric investment fields (no expected_return, no price_target, no probability) -- only entity, event_type, sentiment, confidence, source, timestamp, summary. Default extractor is a small hand-built positive/negative keyword lexicon (the same basic idea as the Loughran-McDonald financial sentiment word lists used as a standard NLP-in-finance baseline), needs no API key, runs offline. `validate_evidence()` enforces the schema and rejects out-of-range values -- the same contract a real LLM-backed extractor would need to satisfy, so one can be dropped in later behind the same interface. Not yet connected to opportunity scoring or the optimizer in any way; it's a parallel, additive capability today. |
+| `db.py` | **Verified.** Plain `sqlite3`. Tables: `clients`, `goals`, `recommendations` (weights/risk-metrics/stress-results/goal-result/tax-result as JSON, plus three separate version fields -- `code_version` from git, `data_version` from `data_source`, `model_version` from `version.py`, kept separate on purpose, see that file's docstring), `review_queue` (proposed vs. previous-approved weights, status, reviewer note). |
+| `version.py` | **Verified.** `MODEL_VERSION`, bumped only when the optimization methodology itself changes (a new estimator, a changed constraint set) -- not on every commit, unlike `code_version`. |
+| `api.py` | **Verified.** FastAPI: client CRUD-lite, `POST .../recommendations` (runs the full pipeline and persists it), `POST /recommendations/{id}/submit-for-review`, `GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/decide`, `GET /health`. No execution endpoint exists anywhere, and there is a real (if minimal) review workflow now, not just an architectural promise. |
+| `test_pipeline.py` | **Verified.** 17 checks: constraint satisfaction (crypto/illiquid/concentration caps, ethical exclusions, cash floor) across the full risk-tolerance range, frontier monotonicity, capacity-caps-tolerance, VaR/CVaR ordering, tax drag behavior including the Singapore zero-tax case, evidence schema validation, goal-probability bounds, full end-to-end run with exclusions. All pass. |
+| `test_api.py` | **Verified.** 13 checks, including ethical exclusions and tax jurisdiction applied through the live API (not just `main.py`), and the review-queue workflow (submit, list pending, decide, `previous_weights` correctly carrying forward from the last *approved* recommendation on the next submission). All pass. |
+| `main.py` | **Verified.** Two example clients through the full pipeline, both now with real goals, exclusions (Client B), and different tax jurisdictions -- prints gross and net-of-tax return, risk metrics, six stress scenarios, goal probability, and the explanation. |
+| `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** Precomputes a 41-point risk-tolerance grid across the full 22-instrument universe and embeds it in a self-contained, slider-driven static page (human-readable instrument names and asset-class labels, no server, no CDN dependency). Not wired to call the live API -- still reads its own precomputed grid. |
 
-**Not started at all:** individual-security universe (still 6 broad
-asset classes), ethical/ESG screening (not meaningful yet at
-asset-class granularity — `ClientProfile.excluded_sectors` exists as a
-field and flows into the explanation text, but nothing actually filters
-the universe by it yet), the NLP/LLM evidence layer, tax modeling, a
-*formalized* model registry (recommendations already carry
-`code_version`/`data_version`, but nothing versions the optimizer
-config or risk model separately yet — see Step 9), a human-review UI
-(the principle is upheld today only by there being no execution
-endpoint at all — see Step 8), and anything regulatory.
+**Not started at all:** persistent connection between `evidence.py`'s
+output and anything that acts on it (opportunity scoring, the
+optimizer, or even just attaching evidence to a stored recommendation),
+a frontend beyond the static demo, backtesting/walk-forward validation,
+point-in-time data integrity, individual-security-level fundamental
+data (the universe is 22 representative instruments, not thousands of
+underlying names), and anything that turns a recommendation into a
+trade.
 
 ---
 
 ## 4. Non-negotiable principles
 
-These should survive any refactor, regardless of how the "your call"
-items get decided:
-
-1. **No LLM-invented numbers.** Any future LLM integration produces
-   evidence, tags, sentiment, or prose — never a return, volatility, or
-   probability that reaches a client without passing through a real
-   quantitative model first.
+1. **No LLM-invented numbers.** `evidence.py` produces sentiment, event
+   tags, and a self-reported confidence score -- never a return,
+   volatility, or probability that reaches a client without passing
+   through a real quantitative model first.
 2. **Risk capacity caps risk tolerance**, not an average of the two.
-   `ClientProfile.effective_risk_score` encodes this; don't flatten it
-   to a simple mean in some future refactor for convenience. There is a
-   dedicated test for this exact property — don't let it regress.
+   `ClientProfile.effective_risk_score` encodes this; there's a
+   dedicated test for exactly this property.
 3. **The client stays a first-class input.** If a change makes two
    differently-profiled clients start converging toward the same
    output by default, that's a regression, not a simplification.
-4. **Honest labeling, always.** Synthetic vs. real data, and
-   tested vs. untested code, get called out explicitly in comments and
-   docs — never silently presented as more mature than they are. This
-   file itself follows that rule (see Section 3) — it was previously
-   found to be badly out of sync with the actual repo (claiming files
-   existed that hadn't been written yet); if that ever happens again,
-   fix the doc against the actual filesystem state, not the reverse.
-5. **Tests stay green, and grow with the code.** `test_pipeline.py`
-   caught a real constraint-violation bug during development. Every new
-   module gets tests that check properties, not just "it ran" — see the
-   existing tests for the pattern (constraint satisfaction, boundedness,
-   monotonicity).
-6. **Human review before execution**, once there's anything to execute.
-   No API endpoint should let a recommendation become a trade without
-   that step existing first — not even for a demo, not even behind a
-   flag.
+4. **Honest labeling, always.** Synthetic vs. real data, tested vs.
+   untested code, illustrative vs. calibrated assumptions -- called out
+   explicitly, never silently presented as more mature than they are.
+   This file previously drifted badly out of sync with the actual repo
+   (claiming files existed that hadn't been written); if that ever
+   happens again, fix the doc against the filesystem, not the reverse.
+5. **Tests stay green, and grow with the code.** Every new module gets
+   tests that check properties (constraint satisfaction, boundedness,
+   monotonicity), not just "it ran."
+6. **Human review before execution**, once there's anything to
+   execute. `review_queue` exists specifically so this workflow is
+   already in the codebase before there's ever a reason to skip
+   building it. No API endpoint lets a recommendation become a trade —
+   not even behind a flag.
+7. **Shrink expected returns toward an independent prior, not toward
+   the sample itself.** Plain James-Stein shrinkage toward the
+   cross-sectional grand mean still inherits some of the noise it's
+   trying to correct for, especially when one or two extreme assets
+   (crypto, in this universe) can drag the grand mean around. Shrinking
+   toward `house_view.py`'s stated capital-market assumptions instead
+   keeps the correction anchored to something genuinely independent of
+   the noisy sample -- don't quietly revert this to plain grand-mean
+   shrinkage for convenience.
+8. **No code, comments, or docs in this repo should read as
+   AI-generated or mention the tooling used to build it.** Write
+   everything as a human engineer's own notes and commits.
 
 ---
 
 ## 5. Step-by-step plan for what's next
 
-Ordered by dependency — each step assumes the previous ones are done.
-Pick up wherever fits the available time; each step should leave the
-repo in a working, tested state, not a half-finished one.
+**Step 1 — Verify real data. BLOCKED IN THIS SANDBOX, not blocked in general.**
+This environment's egress policy rejects every external host tested
+(Tiingo, CoinGecko, and several other data vendors all returned a
+403 on the CONNECT itself). None of that is fixable from in here.
+Outside this sandbox: get a free Tiingo API key (see the connect guide
+below), run `data_vendor.py` standalone, confirm its output matches
+`universe.generate_universe_prices()`'s shape, then
+`USE_REAL_DATA=1 python3 main.py`. Expect some numbers to shift once
+real history replaces the synthetic generator -- that's expected.
 
-**Step 1 — Verify real data. PARTIALLY DONE.**
-`data_source.py` now has the `USE_REAL_DATA` env-var switch, and both
-`main.py` and `api.py` go through it rather than importing
-`synthetic_data` directly. What's left: get a free Tiingo API key and
-run `data_vendor.py` *outside this sandbox* (its egress policy blocks
-`api.tiingo.com` outright, so this cannot be completed inside the
-current environment — confirm whatever environment attempts it next
-actually has real network access first). Confirm its output DataFrame
-matches `synthetic_data.py`'s shape (same columns, sane price levels),
-then actually run `USE_REAL_DATA=1 python3 main.py` and `test_pipeline.py`
-end to end. Expect some numeric assumptions to shift once real
-historical returns replace the synthetic assumptions; that's expected,
-not a bug to paper over by loosening test tolerances without thinking
-about why.
+**Step 2 — Wire evidence into something.** `evidence.py` produces
+records that nothing downstream reads yet. The honest next move,
+consistent with Principle 1, is *not* to feed sentiment into the
+optimizer's return estimate directly -- it's to attach evidence records
+to a stored recommendation as supporting/contradicting context (a
+`recommendation_evidence` table, evidence surfaced alongside the
+explanation) so a human reviewer sees it, without it ever becoming a
+number the optimizer consumes.
 
-**Step 2 — Persistent storage. DONE.**
-`db.py`, plain `sqlite3` (not Postgres+TimescaleDB — that heavier stack
-earns its complexity later, not on day one of a solo build). Clients,
-goals, and recommendations (weights + risk/stress/goal-simulation
-results as JSON, plus `code_version`/`data_version` audit fields) all
-persist and round-trip. This is the seed of the model-registry
-principle (Step 9), not the full thing yet — it records *what* produced
-a recommendation, not a separately versioned config for the optimizer
-or risk model.
+**Step 3 — A frontend against the live API.** `wealth_demo.html` still
+reads its own precomputed grid; pointing it (or a proper small
+frontend) at `api.py` would make the whole thing feel like a real
+product rather than a script plus a static demo.
 
-**Step 3 — API layer. DONE.**
-`api.py`, FastAPI. Create a client, request a recommendation (runs the
-full pipeline and persists it), fetch a client or a past recommendation
-back. Verified both via `TestClient` and via a real `uvicorn` process
-hit with `curl` (see Section 3). `wealth_demo.html` is not yet wired to
-call this live — it still reads its own precomputed grid from
-`export_frontier.py`. Pointing the demo at the live API (or building a
-small new frontend against it) is reasonable next-session scope, but
-wasn't done here since the existing demo already satisfies "a UI could
-call this."
+**Step 4 — Backtesting / walk-forward validation.** Nothing in this
+repo has been tested against out-of-sample performance yet. Worth
+doing before trusting the shrinkage-toward-house-view estimator (or any
+future estimator) beyond a demo context.
 
-**Step 4 — Expand the investment universe.**
-Move from 6 broad asset classes to real constituent securities, at
-least within the equity sleeve (a basket of real stocks/ETFs). This is
-what makes the next two steps meaningful rather than token.
+**Step 5 — Calibrate the stress scenarios.** Current shock magnitudes
+in `stress_test.py` are illustrative. Calibrating them against actual
+historical analogues (GFC, COVID, a real rate-hike cycle) would make
+the numbers defensible rather than just plausible-looking.
 
-**Step 5 — Ethical/exclusion screening.**
-Simple rule-based sector/company exclusion (tobacco, weapons, gambling,
-fossil fuels) against the expanded universe. `ClientProfile.excluded_sectors`
-already exists as a field (currently decorative — it shows up in the
-explanation text but doesn't filter anything); this step is what makes
-it real. Not a full controversy classifier yet — that's downstream of
-Step 6.
-
-**Step 6 — First NLP/LLM evidence layer.**
-Small, curated source list to start (e.g. SEC EDGAR filings for
-whatever's in the universe after Step 4). Schema-validated extraction
-— a Pydantic schema with no numeric investment fields, a retry-on-
-validation-failure loop, low-confidence extractions routed to a review
-queue rather than silently dropped or guessed. This is where Principle
-1 in Section 4 gets its first real test.
-
-**Step 7 — Tax-drag estimation, one jurisdiction.**
-Singapore, since that's what's already been scoped conceptually.
-Simplified capital-gains and dividend-withholding treatment — not
-comprehensive, just enough to show up in a recommendation's numbers.
-
-**Step 8 — Human-review workflow.**
-Even a minimal version — a queue table plus a simple diff view (proposed
-vs. current portfolio, with the evidence bundle attached) — beats not
-having one. This is what keeps Principle 6 real instead of aspirational
-once Step 3's API makes it possible to bypass.
-
-**Step 9 — Model registry, formalized.**
-Version the optimizer config, the risk model, and any LLM prompts;
-link every stored recommendation to the exact versions that produced
-it.
-
-**Step 10 — Regulatory/licensing.**
-Not a coding task. Runs in parallel with actual counsel, not as a
-"later" item on this list to eventually write code for.
+**Step 6 — Point-in-time data integrity**, if real data ever gets
+wired in for real: every price/fundamental fact needs a `valid_time`/
+`as_of_time` pair so a later backtest can't accidentally see
+restated data. Cheap to add now, expensive to retrofit.
 
 ---
 
-## 6. Your call — deliberately unspecified
+## 6. Connecting real data (outside this sandbox)
 
-Don't treat these as open questions to bring back for discussion;
-decide and proceed:
+Two vendors, matched to what each is actually good for. Both are free
+at the scale this project needs.
+
+**Tiingo** — equities, ETFs, bond funds, REITs, commodity funds (every
+instrument in `universe.py` with a `real_ticker` set, except the two
+crypto instruments):
+1. Sign up at tiingo.com (free tier is enough for this).
+2. Generate an API key from the account settings page.
+3. `export TIINGO_API_KEY=your_key_here` (or put it in a local `.env`
+   you don't commit).
+4. `python3 data_vendor.py` on its own first, to sanity-check the
+   output before trusting it anywhere downstream.
+
+**CoinGecko** — Bitcoin and Ethereum. No signup, no key, for the basic
+`market_chart/range` endpoint this project uses. If CoinGecko's free
+tier ever starts rate-limiting a real workload, they do offer a paid
+Demo/Pro API key that raises the limit; not needed to get started.
+
+Once both check out standalone, `USE_REAL_DATA=1 python3 main.py`
+routes everything through `data_source.get_prices()` into the real
+data path instead of the synthetic generator -- no other code changes
+needed, by design (see `data_source.py`'s docstring).
+
+---
+
+## 7. Your call — deliberately unspecified
 
 - Exact API route naming/versioning scheme
-- Database library choice (raw `sqlite3`, SQLAlchemy, SQLModel — whatever)
+- Database library choice beyond raw `sqlite3`, if it ever needs to change
 - Code organization into packages/modules beyond the current flat layout
 - Frontend/charting choices for anything beyond the existing static demo
-- Which LLM provider/model for Step 6, as long as it goes through the
-  schema-validated, no-numbers pattern
-- Whether to migrate `test_pipeline.py`'s plain asserts to pytest
+- Which LLM provider/model if `evidence.py` ever gets a model-backed
+  extractor alongside the lexicon one, as long as it goes through the
+  same schema-validated, no-numbers `Evidence` contract
+- Whether to migrate the plain-assert test runners to pytest
 - Naming conventions beyond what's already established in the existing files

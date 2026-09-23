@@ -1,13 +1,17 @@
-"""Explainability layer (master plan Part A §21).
+"""Explainability layer.
 
 Deterministic templating over numbers already computed elsewhere in the
-pipeline (optimizer, risk engine, goal simulator). Deliberately not an
-LLM call: nothing here is a new estimate, and the numbers it narrates
-are already final by the time this runs (see CLAUDE.md Section 1/2 --
-LLMs interpret, they never invent the numbers themselves).
+pipeline (optimizer, risk engine, goal simulator, tax estimator).
+Deliberately not an LLM call: nothing here is a new estimate, and the
+numbers it narrates are already final by the time this runs -- LLMs
+interpret, they never invent the numbers themselves.
 """
 
 from __future__ import annotations
+
+import universe
+
+_NAME_OF = {inst.ticker: inst.name for inst in universe.UNIVERSE}
 
 
 def generate_explanation(
@@ -22,9 +26,13 @@ def generate_explanation(
     risk_metrics: dict[str, float],
     goal_result: dict | None = None,
     excluded_sectors: list[str] | None = None,
+    tax_result: dict | None = None,
 ) -> str:
     top_holdings = sorted(weights.items(), key=lambda kv: -kv[1])[:3]
-    top_str = ", ".join(f"{name} ({weight:.0%})" for name, weight in top_holdings if weight > 0.001)
+    top_str = ", ".join(
+        f"{_NAME_OF.get(ticker, ticker)} ({weight:.0%})"
+        for ticker, weight in top_holdings if weight > 0.001
+    )
 
     lines = [
         f"{client_name}'s recommended portfolio is led by {top_str}, reflecting an "
@@ -35,6 +43,13 @@ def generate_explanation(
         f"Historical simulation puts max drawdown at {risk_metrics['max_drawdown']:.1%} "
         f"and 1-day 95% VaR at {risk_metrics['var_95_daily']:.1%} of portfolio value.",
     ]
+
+    if tax_result is not None and tax_result["total_tax_drag"] > 0:
+        lines.append(
+            f"After an estimated {tax_result['total_tax_drag']:.1%} annual tax drag "
+            f"({tax_result['jurisdiction_label']}), net expected return is "
+            f"{tax_result['net_expected_return']:.1%}."
+        )
 
     if goal_result is not None:
         lines.append(

@@ -4,6 +4,8 @@
 
 **How to use this document:** Part A is the philosophy and product requirements (why this exists, what it needs to do). Part B is the concrete engineering plan (what to actually build it with, and why). Part C used to track current build status inline but now just points to `CLAUDE.md` in the repo root, which is the maintained source of truth for that (see C1). If you're feeding this to a model with a small context window: read `CLAUDE.md` first for exactly where the build stands and what to do next, then Part B here for the "why" behind stack choices, then Part A for background/rationale.
 
+**Project framing note:** this project is a personal/portfolio build, not a regulated financial business — see `CLAUDE.md`'s framing note. Part A §39 and Part B §3 (regulatory/licensing) describe what a *real* wealth-management operation would eventually need; they're kept here as background on the domain, not as an active work item. Nothing in the current build depends on them.
+
 ---
 
 # PART A — VISION & PHILOSOPHY
