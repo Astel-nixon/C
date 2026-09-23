@@ -120,32 +120,41 @@ the numbers are then bent to match.
 ## 3. Current repo state — what's actually real
 
 Be precise here. "Written" and "verified" are different claims.
-Everything below was implemented and run in this session, on
-2026-09-23; `test_pipeline.py` (12 checks) and `main.py` both pass/run
-cleanly as of that commit.
+Everything below was implemented and run in this session, most
+recently on 2026-09-23; `test_pipeline.py` (12 checks), `test_api.py`
+(9 checks), and `main.py` all pass/run cleanly as of that commit, and
+the API was additionally confirmed booting under a real `uvicorn`
+server and answering real HTTP requests via `curl` — not just
+FastAPI's in-process `TestClient`.
 
 | File | Status |
 |---|---|
 | `synthetic_data.py` | **Verified.** Placeholder multi-asset price generator. Every downstream module only depends on a DataFrame of prices — swapping the source changes nothing else. |
 | `data_vendor.py` | **Written, NOT verified.** Real Tiingo integration, follows the documented API shape. Never successfully executed against the live API: this environment's egress proxy rejects connections to `api.tiingo.com` outright (organization policy — confirmed via a direct `curl`, independent of having an API key), so it couldn't even be smoke-tested here. Run it yourself, outside this sandbox, with a real `TIINGO_API_KEY`, and confirm the output shape matches `synthetic_data.py`'s before trusting it anywhere. |
+| `data_source.py` | **Verified for the synthetic path only.** Single switch point (`get_prices()`, gated by `USE_REAL_DATA=1`) used by both `main.py` and `api.py` so they don't each reimplement the branch. The synthetic branch is exercised by every test in the repo. The real-data branch inherits `data_vendor.py`'s unverified status above — flipping the flag is wired but untested. |
 | `client_profile.py` | **Verified.** `ClientProfile`/`Goal` dataclasses; `effective_risk_score` implements capacity-caps-tolerance, checked explicitly in `test_pipeline.py` (not just capacity-caps-tolerance, but that it's *not* the average of the two). |
 | `portfolio_optimizer.py` | **Verified**, including the target-return-ceiling issue: the max-feasible-return endpoint is found via a bounded search over `efficient_return()` (`_max_feasible_return`) rather than naively using `mu.max()`, so the crypto-cap/cash-floor constraints are respected even at `risk_tolerance=1.0`. Confirmed by test: crypto cap and cash floor both hold across the full 0–1 risk-tolerance range. |
 | `risk_engine.py` | **Verified.** Sharpe/Sortino/drawdown/VaR/CVaR, computed directly, not via a library — small enough set of formulas that a direct implementation is easier to audit than a dependency. |
 | `goal_simulator.py` | **Verified.** Monte Carlo with a Student-t (fat-tailed) shock distribution, deliberately not i.i.d. normal; variance rescaled so volatility matches the requested input regardless of degrees of freedom. |
 | `stress_test.py` | **Verified.** Five illustrative scenarios. Shock magnitudes are illustrative, not calibrated to historical analogues yet (see Step 6 below). |
 | `explainability.py` | **Verified.** Rule-based templating only — deliberately not an LLM call (see Section 1). |
+| `db.py` | **Verified.** Plain `sqlite3`, not an ORM. Schema: `clients`, `goals`, `recommendations` (weights/risk-metrics/stress-results/goal-result as JSON columns, plus `code_version` — real git short SHA, pulled via `git rev-parse --short HEAD` — and `data_version` audit fields). Client save/fetch and recommendation save/fetch/list all round-tripped correctly in a smoke test against a temp file DB before `api.py` was built on top of it. |
+| `api.py` | **Verified.** FastAPI app: `POST /clients`, `GET /clients/{id}`, `POST /clients/{id}/recommendations` (runs the full pipeline and persists it), `GET /clients/{id}/recommendations`, `GET /recommendations/{id}`, `GET /health`. Deliberately has no execution endpoint — see Principle 6. Confirmed working both via `TestClient` and via a real `uvicorn` process hit with `curl`. |
 | `test_pipeline.py` | **Verified.** 12 checks on properties that matter (weights sum to 1, crypto cap/cash floor hold at every risk tolerance, frontier is monotonic non-decreasing in return, risk capacity caps rather than averages tolerance, VaR/CVaR ordering, goal probabilities bounded 0–1, full pipeline runs end-to-end) rather than just "did it execute." All 12 pass. Keep this green; extend it for every new module. |
-| `main.py` | **Verified.** Runs two example clients (mirroring the original "Client A"/"Client B" personas, now with actual `Goal`s) through the full built pipeline and prints a report including risk metrics, stress results, goal probability, and the generated explanation. |
-| `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** `export_frontier.py` precomputes a 41-point risk-tolerance grid (weights/return/vol/Sharpe at each point) in Python and writes it into a self-contained static HTML page (`wealth_demo.html`, generated — not committed as a separate source artifact, regenerate via `python3 export_frontier.py`). The page is a plain SVG chart + slider with no server and no CDN dependency, so it opens directly from a local `file://` path. Confirmed the embedded JSON is well-formed and the placeholder markers are fully substituted. |
+| `test_api.py` | **Verified.** 9 checks against the API using an isolated temp SQLite DB per check (health, client creation/validation including a 422 on an out-of-range `risk_tolerance`, 404s on unknown ids, recommendation persistence round-trip, list growth across repeated requests, and that two differently-profiled clients get different volatility through the live API, not just through `main.py`). All 9 pass. |
+| `main.py` | **Verified.** Runs two example clients (mirroring the original "Client A"/"Client B" personas, now with actual `Goal`s) through the full built pipeline via `data_source.get_prices()` and prints a report including risk metrics, stress results, goal probability, and the generated explanation. |
+| `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** `export_frontier.py` precomputes a 41-point risk-tolerance grid (weights/return/vol/Sharpe at each point) in Python and writes it into a self-contained static HTML page (`wealth_demo.html`, generated — not committed as a separate source artifact, regenerate via `python3 export_frontier.py`). The page is a plain SVG chart + slider with no server and no CDN dependency, so it opens directly from a local `file://` path. Confirmed the embedded JSON is well-formed and the placeholder markers are fully substituted. Not yet wired to call the live API — it still reads its own precomputed grid, not `api.py`. |
 
-**Not started at all:** persistent storage (everything currently lives
-in memory for a single script run), an API layer, individual-security
-universe (still 6 broad asset classes), ethical/ESG screening (not
-meaningful yet at asset-class granularity — `ClientProfile.excluded_sectors`
-exists as a field and flows into the explanation text, but nothing
-actually filters the universe by it yet), the NLP/LLM evidence layer,
-tax modeling, model registry / audit trail, human-review UI, and
-anything regulatory.
+**Not started at all:** individual-security universe (still 6 broad
+asset classes), ethical/ESG screening (not meaningful yet at
+asset-class granularity — `ClientProfile.excluded_sectors` exists as a
+field and flows into the explanation text, but nothing actually filters
+the universe by it yet), the NLP/LLM evidence layer, tax modeling, a
+*formalized* model registry (recommendations already carry
+`code_version`/`data_version`, but nothing versions the optimizer
+config or risk model separately yet — see Step 9), a human-review UI
+(the principle is upheld today only by there being no execution
+endpoint at all — see Step 8), and anything regulatory.
 
 ---
 
@@ -190,33 +199,41 @@ Ordered by dependency — each step assumes the previous ones are done.
 Pick up wherever fits the available time; each step should leave the
 repo in a working, tested state, not a half-finished one.
 
-**Step 1 — Verify real data.**
-Get a free Tiingo API key and run `data_vendor.py` *outside this
-sandbox* (its egress policy blocks `api.tiingo.com` outright, so this
-step cannot be completed inside the current environment — confirm
-whatever environment attempts it next actually has network access
-first). Confirm its output DataFrame matches `synthetic_data.py`'s
-shape (same columns, sane price levels). Wire it into `main.py` behind
-a flag (e.g. a `USE_REAL_DATA` env var) so both remain available.
-Re-run `test_pipeline.py` — expect some numeric assumptions to shift
-once real historical returns replace the synthetic assumptions; that's
-expected, not a bug to paper over by loosening test tolerances without
-thinking about why.
+**Step 1 — Verify real data. PARTIALLY DONE.**
+`data_source.py` now has the `USE_REAL_DATA` env-var switch, and both
+`main.py` and `api.py` go through it rather than importing
+`synthetic_data` directly. What's left: get a free Tiingo API key and
+run `data_vendor.py` *outside this sandbox* (its egress policy blocks
+`api.tiingo.com` outright, so this cannot be completed inside the
+current environment — confirm whatever environment attempts it next
+actually has real network access first). Confirm its output DataFrame
+matches `synthetic_data.py`'s shape (same columns, sane price levels),
+then actually run `USE_REAL_DATA=1 python3 main.py` and `test_pipeline.py`
+end to end. Expect some numeric assumptions to shift once real
+historical returns replace the synthetic assumptions; that's expected,
+not a bug to paper over by loosening test tolerances without thinking
+about why.
 
-**Step 2 — Persistent storage.**
-Start with SQLite, not the Postgres+TimescaleDB setup from the original
-technical plan — that heavier stack earns its complexity later
-(multiple concurrent users, real point-in-time bitemporal requirements),
-not on day one of a solo build. Store clients, their goals, generated
-recommendations (weights + metrics), and a basic audit log (which
-recommendation, when, against which code/data version). This is the
-seed of the model-registry principle, not the full thing yet.
+**Step 2 — Persistent storage. DONE.**
+`db.py`, plain `sqlite3` (not Postgres+TimescaleDB — that heavier stack
+earns its complexity later, not on day one of a solo build). Clients,
+goals, and recommendations (weights + risk/stress/goal-simulation
+results as JSON, plus `code_version`/`data_version` audit fields) all
+persist and round-trip. This is the seed of the model-registry
+principle (Step 9), not the full thing yet — it records *what* produced
+a recommendation, not a separately versioned config for the optimizer
+or risk model.
 
-**Step 3 — API layer.**
-Wrap the pipeline in FastAPI: create a client, request a recommendation,
-fetch a past recommendation. This turns `main.py`'s hardcoded two-client
-script into something a UI (including the existing HTML demo) could
-call live.
+**Step 3 — API layer. DONE.**
+`api.py`, FastAPI. Create a client, request a recommendation (runs the
+full pipeline and persists it), fetch a client or a past recommendation
+back. Verified both via `TestClient` and via a real `uvicorn` process
+hit with `curl` (see Section 3). `wealth_demo.html` is not yet wired to
+call this live — it still reads its own precomputed grid from
+`export_frontier.py`. Pointing the demo at the live API (or building a
+small new frontend against it) is reasonable next-session scope, but
+wasn't done here since the existing demo already satisfies "a UI could
+call this."
 
 **Step 4 — Expand the investment universe.**
 Move from 6 broad asset classes to real constituent securities, at

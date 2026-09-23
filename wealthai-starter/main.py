@@ -17,12 +17,12 @@ from __future__ import annotations
 from datetime import date
 
 from client_profile import ClientProfile, Goal
+from data_source import get_prices
 from explainability import generate_explanation
 from goal_simulator import simulate_goal_probability
 from portfolio_optimizer import PortfolioResult, optimize_portfolio
 from risk_engine import compute_risk_metrics
 from stress_test import run_stress_tests
-from synthetic_data import generate_synthetic_prices
 
 CLIENT_A = ClientProfile(
     name="Client A",
@@ -136,8 +136,9 @@ def print_report(client: ClientProfile, report: dict) -> None:
 
 
 def main() -> None:
-    prices = generate_synthetic_prices(years=5, seed=42)
-    print(f"Generated {len(prices)} days of synthetic prices for: {list(prices.columns)}")
+    prices, data_version = get_prices(years=5, seed=42)
+    print(f"Data source: {data_version}")
+    print(f"Generated {len(prices)} days of prices for: {list(prices.columns)}")
 
     report_a = run_for_client(CLIENT_A, prices)
     report_b = run_for_client(CLIENT_B, prices)
