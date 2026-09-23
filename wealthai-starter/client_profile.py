@@ -42,8 +42,10 @@ class ClientProfile:
     debt_to_income: float  # total debt / annual income
     goals: list[Goal] = field(default_factory=list)
     crypto_cap: float = 0.05
+    illiquid_cap: float = 0.20  # private equity + private credit + direct real estate, combined
     min_cash: float = 0.05
     excluded_sectors: list[str] = field(default_factory=list)  # e.g. ["tobacco", "weapons"]
+    tax_jurisdiction: str = "none"  # key into tax.py's jurisdiction table; "none" = no tax drag
 
     @property
     def risk_capacity(self) -> float:
