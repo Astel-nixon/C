@@ -109,6 +109,13 @@ Execution & Monitoring                                                      [NOT
                                                                               NOT PLANNED]
 ```
 
+A browser frontend (`static/index.html`) sits on top of this whole pipeline
+now -- an intake form posting to `/clients` and `/clients/{id}/recommendations`,
+a results view rendering every stage above, and a review-queue screen driving
+`/reviews` and `/reviews/{id}/decide`. It's the same API `main.py` and the
+tests already exercise; the frontend adds no new business logic, only a way
+to see the pipeline run without curl or a Python shell.
+
 **Why this order, not some other order:** the risk score has to exist
 before optimization (it's the input, not a post-hoc label); risk/stress/
 tax/goal analysis has to happen on the *actual chosen* portfolio, not a
@@ -142,7 +149,8 @@ FastAPI's `TestClient` and booting under a real `uvicorn` process.
 | `evidence.py` | **Verified, NOT wired into the optimizer.** `Evidence` schema deliberately has no numeric investment fields (no expected_return, no price_target, no probability) -- only entity, event_type, sentiment, confidence, source, timestamp, summary. Default extractor is a small hand-built positive/negative keyword lexicon (the same basic idea as the Loughran-McDonald financial sentiment word lists used as a standard NLP-in-finance baseline), needs no API key, runs offline. `validate_evidence()` enforces the schema and rejects out-of-range values -- the same contract a real LLM-backed extractor would need to satisfy, so one can be dropped in later behind the same interface. Not yet connected to opportunity scoring or the optimizer in any way; it's a parallel, additive capability today. |
 | `db.py` | **Verified.** Plain `sqlite3`. Tables: `clients`, `goals`, `recommendations` (weights/risk-metrics/stress-results/goal-result/tax-result as JSON, plus three separate version fields -- `code_version` from git, `data_version` from `data_source`, `model_version` from `version.py`, kept separate on purpose, see that file's docstring), `review_queue` (proposed vs. previous-approved weights, status, reviewer note). |
 | `version.py` | **Verified.** `MODEL_VERSION`, bumped only when the optimization methodology itself changes (a new estimator, a changed constraint set) -- not on every commit, unlike `code_version`. |
-| `api.py` | **Verified.** FastAPI: client CRUD-lite, `POST .../recommendations` (runs the full pipeline and persists it), `POST /recommendations/{id}/submit-for-review`, `GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/decide`, `GET /health`. No execution endpoint exists anywhere, and there is a real (if minimal) review workflow now, not just an architectural promise. |
+| `api.py` | **Verified.** FastAPI: client CRUD-lite, `POST .../recommendations` (runs the full pipeline and persists it), `POST /recommendations/{id}/submit-for-review`, `GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/decide`, `GET /universe` (instrument metadata for the frontend, sourced live from `universe.py` so it can't drift out of sync), `GET /health`. Serves `static/` via a `StaticFiles` mount added *after* every API route, so explicit routes resolve first and the frontend shares one origin with the JSON API -- no CORS configuration anywhere. No execution endpoint exists anywhere, and there is a real (if minimal) review workflow now, not just an architectural promise. |
+| `static/index.html` | **Verified.** The frontend: a client-intake form (every `ClientIn` field, including dynamically-populated exclusion checkboxes pulled from `/universe`) that posts straight to the real API, a results view rendering the allocation (colored by asset class), performance/risk stats, all six stress scenarios, the goal-simulation probability bar, and the explanation text, plus a review-queue tab driving `/reviews` and `/reviews/{id}/decide` with a previous-vs-proposed weights diff. Plain HTML/CSS/vanilla JS, no framework, no build step -- one file. Confirmed end to end with a scripted Playwright run (fill form -> submit -> see the recommendation render -> submit for review -> approve it in the queue -> submit a second recommendation for the same client and confirm the diff against the first appears), not just a manual look. |
 | `test_pipeline.py` | **Verified.** 17 checks: constraint satisfaction (crypto/illiquid/concentration caps, ethical exclusions, cash floor) across the full risk-tolerance range, frontier monotonicity, capacity-caps-tolerance, VaR/CVaR ordering, tax drag behavior including the Singapore zero-tax case, evidence schema validation, goal-probability bounds, full end-to-end run with exclusions. All pass. |
 | `test_api.py` | **Verified.** 13 checks, including ethical exclusions and tax jurisdiction applied through the live API (not just `main.py`), and the review-queue workflow (submit, list pending, decide, `previous_weights` correctly carrying forward from the last *approved* recommendation on the next submission). All pass. |
 | `main.py` | **Verified.** Two example clients through the full pipeline, both now with real goals, exclusions (Client B), and different tax jurisdictions -- prints gross and net-of-tax return, risk metrics, six stress scenarios, goal probability, and the explanation. |
@@ -151,11 +159,10 @@ FastAPI's `TestClient` and booting under a real `uvicorn` process.
 **Not started at all:** persistent connection between `evidence.py`'s
 output and anything that acts on it (opportunity scoring, the
 optimizer, or even just attaching evidence to a stored recommendation),
-a frontend beyond the static demo, backtesting/walk-forward validation,
-point-in-time data integrity, individual-security-level fundamental
-data (the universe is 22 representative instruments, not thousands of
-underlying names), and anything that turns a recommendation into a
-trade.
+backtesting/walk-forward validation, point-in-time data integrity,
+individual-security-level fundamental data (the universe is 22
+representative instruments, not thousands of underlying names), and
+anything that turns a recommendation into a trade.
 
 ---
 
@@ -221,10 +228,11 @@ to a stored recommendation as supporting/contradicting context (a
 explanation) so a human reviewer sees it, without it ever becoming a
 number the optimizer consumes.
 
-**Step 3 — A frontend against the live API.** `wealth_demo.html` still
-reads its own precomputed grid; pointing it (or a proper small
-frontend) at `api.py` would make the whole thing feel like a real
-product rather than a script plus a static demo.
+**Step 3 — A frontend against the live API. DONE.** `static/index.html`
+hits `api.py` directly -- no precomputed grid, no static demo standing
+in for the real thing anymore. `wealth_demo.html` (the old slider demo)
+still exists for the standalone frontier-visualization use case, but
+the product demo is `static/index.html` now.
 
 **Step 4 — Backtesting / walk-forward validation.** Nothing in this
 repo has been tested against out-of-sample performance yet. Worth

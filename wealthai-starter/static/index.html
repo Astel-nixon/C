@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Engine</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f5ef; --surface: #ffffff; --surface-2: #eceee4;
+    --ink: #1b231d; --muted: #5c6459; --border: #d8dccc;
+    --built: #2f6f5e; --built-soft: #e2efe8;
+    --warn: #a1732c; --warn-soft: #f5ecdd;
+    --bad: #a1442f; --bad-soft: #f6e6e1;
+    --shadow: 0 1px 2px rgba(27,35,29,.06), 0 8px 24px rgba(27,35,29,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #12160f; --surface: #191f18; --surface-2: #202720;
+      --ink: #edf0e8; --muted: #9aa397; --border: #2c3329;
+      --built: #74cdb2; --built-soft: #1d2c26;
+      --warn: #e2ac54; --warn-soft: #2e2517;
+      --bad: #e58a72; --bad-soft: #2e1c17;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14.5px; line-height: 1.5; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 24px 20px 64px; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 26px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 4px 0 20px; }
+  nav.tabs { display: flex; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  nav.tabs button { font-family: 'IBM Plex Sans'; font-size: 14px; font-weight: 500; background: none; border: none; padding: 10px 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav.tabs button.active { color: var(--built); border-bottom-color: var(--built); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .card h2 { font-family: 'Fraunces', serif; font-size: 17px; font-weight: 600; margin: 0 0 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 640px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 12.5px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+  .field { margin-bottom: 14px; }
+  input[type=text], input[type=number], input[type=date], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--ink); font-size: 14px; font-family: inherit;
+  }
+  input[type=range] { width: 100%; accent-color: var(--built); }
+  .range-row { display: flex; align-items: center; gap: 10px; }
+  .range-row output { font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-width: 42px; text-align: right; }
+  .checks { display: flex; flex-wrap: wrap; gap: 10px; }
+  .checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 400; color: var(--ink); }
+  button.primary {
+    font-family: 'IBM Plex Sans'; font-weight: 600; font-size: 14px; color: #fff; background: var(--built);
+    border: none; border-radius: 8px; padding: 11px 20px; cursor: pointer;
+  }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button.secondary {
+    font-family: 'IBM Plex Sans'; font-weight: 500; font-size: 13px; color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+  }
+  button.reject { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
+  button.approve { color: var(--built); border-color: var(--built); background: var(--built-soft); }
+  .stat { text-align: left; }
+  .stat .l { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-family: 'IBM Plex Mono', monospace; font-size: 21px; font-weight: 500; }
+  .bar-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .bar-row .name { width: 230px; flex-shrink: 0; font-size: 13px; }
+  .bar-row .name .tag { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+  .bar-track { flex: 1; height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 5px; }
+  .bar-row .pct { width: 46px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .scenario-row { display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+  .scenario-row:first-child { border-top: none; }
+  .scenario-row .impact { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+  .impact.neg { color: var(--bad); }
+  .impact.pos { color: var(--built); }
+  .goal-bar-track { height: 16px; background: var(--surface-2); border-radius: 8px; overflow: hidden; margin: 8px 0; }
+  .goal-bar-fill { height: 100%; background: var(--built); border-radius: 8px; }
+  .explanation { font-size: 13.5px; color: var(--ink); background: var(--surface-2); border-radius: 8px; padding: 14px; line-height: 1.6; }
+  .badge { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; }
+  .badge.pending { background: var(--warn-soft); color: var(--warn); }
+  .badge.approved { background: var(--built-soft); color: var(--built); }
+  .badge.rejected { background: var(--bad-soft); color: var(--bad); }
+  .review-card .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .review-card .client { font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; }
+  .review-card .meta { font-size: 12px; color: var(--muted); }
+  .diff-col h4 { font-size: 11.5px; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; letter-spacing: .04em; }
+  textarea.note { width: 100%; min-height: 50px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 13px; background: var(--surface); color: var(--ink); resize: vertical; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .empty { color: var(--muted); font-size: 13.5px; padding: 20px 0; text-align: center; }
+  .status-msg { font-size: 13px; padding: 10px 14px; border-radius: 8px; margin-top: 10px; }
+  .status-msg.ok { background: var(--built-soft); color: var(--built); }
+  .status-msg.err { background: var(--bad-soft); color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Portfolio Engine</h1>
+  <p class="sub">Client intake &rarr; optimized allocation &rarr; human review. Nothing past this ever executes a trade.</p>
+
+  <nav class="tabs">
+    <button id="tabBtnNew" class="active" onclick="showTab('new')">New Recommendation</button>
+    <button id="tabBtnReview" onclick="showTab('review')">Review Queue</button>
+  </nav>
+
+  <section id="panelNew" class="panel active">
+    <div class="card">
+      <h2>Client profile</h2>
+      <form id="clientForm">
+        <div class="grid2">
+          <div class="field"><label>Name</label><input type="text" id="f_name" value="Alex Chen"></div>
+          <div class="field"><label>Age</label><input type="number" id="f_age" value="32" min="18" max="100"></div>
+        </div>
+        <div class="grid3">
+          <div class="field"><label>Annual income ($)</label><input type="number" id="f_income" value="120000" step="1000"></div>
+          <div class="field"><label>Net worth ($)</label><input type="number" id="f_networth" value="250000" step="1000"></div>
+          <div class="field"><label>Liquid assets ($)</label><input type="number" id="f_liquid" value="180000" step="1000"></div>
+        </div>
+
+        <div class="field">
+          <label>Risk tolerance</label>
+          <div class="range-row"><input type="range" id="f_risk" min="0" max="1" step="0.05" value="0.75"><output id="o_risk">0.75</output></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Investment horizon (years)</label><input type="number" id="f_horizon" value="25" min="0"></div>
+          <div class="field"><label>Liquidity need (years until a large capital need)</label><input type="number" id="f_liqneed" value="6" min="0"></div>
+        </div>
+        <div class="field">
+          <label>Income stability</label>
+          <div class="range-row"><input type="range" id="f_stability" min="0" max="1" step="0.05" value="0.8"><output id="o_stability">0.80</output></div>
+        </div>
+        <div class="field">
+          <label>Debt-to-income ratio</label>
+          <div class="range-row"><input type="range" id="f_debt" min="0" max="1.5" step="0.05" value="0.15"><output id="o_debt">0.15</output></div>
+        </div>
+
+        <div class="grid3">
+          <div class="field">
+            <label>Crypto cap</label>
+            <div class="range-row"><input type="range" id="f_cryptocap" min="0" max="0.3" step="0.01" value="0.05"><output id="o_cryptocap">5%</output></div>
+          </div>
+          <div class="field">
+            <label>Illiquid cap (private mkts + direct RE)</label>
+            <div class="range-row"><input type="range" id="f_illiquidcap" min="0" max="0.5" step="0.01" value="0.20"><output id="o_illiquidcap">20%</output></div>
+          </div>
+          <div class="field">
+            <label>Minimum cash</label>
+            <div class="range-row"><input type="range" id="f_mincash" min="0" max="0.3" step="0.01" value="0.05"><output id="o_mincash">5%</output></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Tax jurisdiction</label>
+          <select id="f_tax">
+            <option value="none">None / tax-advantaged account</option>
+            <option value="us_taxable" selected>US, taxable brokerage</option>
+            <option value="uk">UK</option>
+            <option value="singapore">Singapore</option>
+            <option value="india">India</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Ethical exclusions</label>
+          <div class="checks" id="sectorChecks"></div>
+        </div>
+
+        <div class="grid3">
+          <div class="field"><label>Goal name</label><input type="text" id="f_goalname" value="Retirement"></div>
+          <div class="field"><label>Goal target amount ($)</label><input type="number" id="f_goalamount" value="2000000" step="10000"></div>
+          <div class="field"><label>Goal target date</label><input type="date" id="f_goaldate"></div>
+        </div>
+
+        <button type="submit" class="primary" id="submitBtn">Generate recommendation</button>
+        <div id="formStatus"></div>
+      </form>
+    </div>
+
+    <div id="resultCard" hidden></div>
+  </section>
+
+  <section id="panelReview" class="panel">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h2 style="margin:0;">Review queue</h2>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="reviewFilter" onchange="loadReviews()">
+            <option value="pending" selected>Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="">All</option>
+          </select>
+          <button class="secondary" onclick="loadReviews()">Refresh</button>
+        </div>
+      </div>
+      <div id="reviewList"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const ASSET_COLORS = {
+  "Equity": "#2f6f5e", "Bonds": "#5c7fa1", "Commodities": "#a1732c",
+  "Real Estate": "#7a5ca1", "Private Markets": "#a1442f", "Crypto": "#c48a2f", "Cash": "#8b9389",
+};
+
+let UNIVERSE = {};       // ticker -> {name, asset_class, sector_tags}
+const CLIENT_CACHE = {}; // client_id -> client record
+let lastRecommendationId = null;
+let currentClient = null; // the client this tab's results are currently showing
+
+function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
+function fmtMoney(x) { return "$" + Math.round(x).toLocaleString(); }
+
+function showTab(which) {
+  document.getElementById("panelNew").classList.toggle("active", which === "new");
+  document.getElementById("panelReview").classList.toggle("active", which === "review");
+  document.getElementById("tabBtnNew").classList.toggle("active", which === "new");
+  document.getElementById("tabBtnReview").classList.toggle("active", which === "review");
+  if (which === "review") loadReviews();
+}
+
+async function init() {
+  const res = await fetch("/universe");
+  const list = await res.json();
+  const sectors = new Set();
+  for (const inst of list) {
+    UNIVERSE[inst.ticker] = inst;
+    inst.sector_tags.forEach(t => sectors.add(t));
+  }
+  const checksEl = document.getElementById("sectorChecks");
+  [...sectors].sort().forEach(tag => {
+    const id = "sector_" + tag;
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" id="${id}" value="${tag}"> ${tag.replace("_", " ")}`;
+    checksEl.appendChild(label);
+  });
+  // default excludes, matching the "Client B" example used throughout the project notes
+  ["tobacco", "weapons"].forEach(t => {
+    const el = document.getElementById("sector_" + t);
+    if (el) el.checked = true;
+  });
+
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 25);
+  document.getElementById("f_goaldate").value = d.toISOString().slice(0, 10);
+
+  [["f_risk","o_risk",v=>v], ["f_stability","o_stability",v=>v], ["f_debt","o_debt",v=>v],
+   ["f_cryptocap","o_cryptocap",v=>fmtPct(v)], ["f_illiquidcap","o_illiquidcap",v=>fmtPct(v)],
+   ["f_mincash","o_mincash",v=>fmtPct(v)]].forEach(([inId, outId, fmt]) => {
+    const inp = document.getElementById(inId), out = document.getElementById(outId);
+    const update = () => out.textContent = fmt(parseFloat(inp.value));
+    inp.addEventListener("input", update);
+    update();
+  });
+
+  document.getElementById("clientForm").addEventListener("submit", onSubmit);
+}
+
+function checkedSectors() {
+  return [...document.querySelectorAll("#sectorChecks input:checked")].map(el => el.value);
+}
+
+async function onSubmit(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById("submitBtn");
+  const statusEl = document.getElementById("formStatus");
+  btn.disabled = true;
+  statusEl.innerHTML = "";
+  document.getElementById("resultCard").hidden = true;
+
+  const payload = {
+    name: document.getElementById("f_name").value,
+    age: parseInt(document.getElementById("f_age").value),
+    annual_income: parseFloat(document.getElementById("f_income").value),
+    net_worth: parseFloat(document.getElementById("f_networth").value),
+    liquid_assets: parseFloat(document.getElementById("f_liquid").value),
+    risk_tolerance: parseFloat(document.getElementById("f_risk").value),
+    investment_horizon_years: parseFloat(document.getElementById("f_horizon").value),
+    liquidity_need_years: parseFloat(document.getElementById("f_liqneed").value),
+    income_stability: parseFloat(document.getElementById("f_stability").value),
+    debt_to_income: parseFloat(document.getElementById("f_debt").value),
+    crypto_cap: parseFloat(document.getElementById("f_cryptocap").value),
+    illiquid_cap: parseFloat(document.getElementById("f_illiquidcap").value),
+    min_cash: parseFloat(document.getElementById("f_mincash").value),
+    excluded_sectors: checkedSectors(),
+    tax_jurisdiction: document.getElementById("f_tax").value,
+    goals: [{
+      name: document.getElementById("f_goalname").value,
+      target_amount: parseFloat(document.getElementById("f_goalamount").value),
+      target_date: document.getElementById("f_goaldate").value,
+    }],
+  };
+
+  try {
+    const clientRes = await fetch("/clients", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+    if (!clientRes.ok) throw new Error(await describeError(clientRes));
+    const client = await clientRes.json();
+
+    const recRes = await fetch(`/clients/${client.id}/recommendations`, { method: "POST" });
+    if (!recRes.ok) throw new Error(await describeError(recRes));
+    const rec = await recRes.json();
+
+    currentClient = client;
+    renderResult(client, rec);
+    statusEl.innerHTML = `<div class="status-msg ok">Client #${client.id} created, recommendation #${rec.id} generated.</div>`;
+  } catch (err) {
+    statusEl.innerHTML = `<div class="status-msg err">${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function describeError(res) {
+  try {
+    const body = await res.json();
+    return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+  } catch { return `Request failed (${res.status})`; }
+}
+
+function renderResult(client, rec) {
+  lastRecommendationId = rec.id;
+  const entries = Object.entries(rec.weights).filter(([,w]) => w > 0.001).sort((a,b) => b[1]-a[1]);
+  const maxW = Math.max(...entries.map(([,w]) => w));
+
+  const bars = entries.map(([ticker, w]) => {
+    const info = UNIVERSE[ticker] || {name: ticker, asset_class: ""};
+    const color = ASSET_COLORS[info.asset_class] || "#8b9389";
+    return `<div class="bar-row">
+      <div class="name">${info.name}<span class="tag">${info.asset_class}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(w/maxW*100).toFixed(1)}%; background:${color}"></div></div>
+      <div class="pct">${fmtPct(w)}</div>
+    </div>`;
+  }).join("");
+
+  const rm = rec.risk_metrics;
+  const tax = rec.tax_result;
+  const netLine = (tax && tax.total_tax_drag > 0)
+    ? `<div class="stat"><div class="l">Net return (after tax)</div><div class="v">${fmtPct(tax.net_expected_return)}</div></div>`
+    : "";
+
+  const stressRows = Object.entries(rec.stress_results).map(([name, impact]) => {
+    const cls = impact < 0 ? "neg" : "pos";
+    const sign = impact >= 0 ? "+" : "";
+    return `<div class="scenario-row"><span>${name}</span><span class="impact ${cls}">${sign}${fmtPct(impact)}</span></div>`;
+  }).join("");
+
+  let goalBlock = "";
+  if (rec.goal_result) {
+    const g = rec.goal_result;
+    goalBlock = `<div class="card">
+      <h2>Goal simulation</h2>
+      <div class="stat"><div class="l">Probability of reaching ${fmtMoney(g.target_amount)}</div>
+        <div class="v">${fmtPct(g.probability_of_success)}</div></div>
+      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${(g.probability_of_success*100).toFixed(1)}%"></div></div>
+      <p style="color:var(--muted); font-size:12.5px; margin:8px 0 0;">
+        Median outcome ${fmtMoney(g.median_outcome)} over ${g.years.toFixed(0)} years &middot;
+        5th-95th percentile: ${fmtMoney(g.percentiles["5"])} &ndash; ${fmtMoney(g.percentiles["95"])}
+      </p>
+    </div>`;
+  }
+
+  const card = document.getElementById("resultCard");
+  card.hidden = false;
+  card.innerHTML = `
+    <div class="card">
+      <h2>Recommended allocation</h2>
+      ${bars}
+    </div>
+    <div class="card">
+      <h2>Performance &amp; risk</h2>
+      <div class="grid3" style="margin-bottom:14px;">
+        <div class="stat"><div class="l">Expected return (gross)</div><div class="v">${fmtPct(rec.expected_annual_return)}</div></div>
+        <div class="stat"><div class="l">Volatility</div><div class="v">${fmtPct(rec.annual_volatility)}</div></div>
+        <div class="stat"><div class="l">Sharpe ratio</div><div class="v">${rec.sharpe_ratio.toFixed(2)}</div></div>
+      </div>
+      <div class="grid3">
+        ${netLine || "<div></div>"}
+        <div class="stat"><div class="l">Max drawdown</div><div class="v">${fmtPct(rm.max_drawdown)}</div></div>
+        <div class="stat"><div class="l">VaR / CVaR (95%, 1d)</div><div class="v" style="font-size:16px;">${fmtPct(rm.var_95_daily)} / ${fmtPct(rm.cvar_95_daily)}</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Stress scenarios</h2>
+      ${stressRows}
+    </div>
+    ${goalBlock}
+    <div class="card">
+      <h2>Explanation</h2>
+      <p class="explanation">${rec.explanation}</p>
+      <div class="actions" style="margin-top:14px;">
+        <button class="primary" onclick="submitForReview(${rec.id})">Submit for human review</button>
+        <button class="secondary" onclick="regenerateForCurrentClient()">Re-run for this client</button>
+      </div>
+      <p style="color:var(--muted); font-size:12px; margin-top:8px;">
+        "Re-run" requests a fresh recommendation for client #${client.id} without creating a new
+        client record -- the realistic case is re-running an existing client's numbers later, which
+        is also what makes the review queue's previous-vs-proposed diff meaningful. Submitting the
+        form above again always creates a brand-new client instead.
+      </p>
+      <div id="reviewSubmitStatus"></div>
+    </div>
+  `;
+}
+
+async function regenerateForCurrentClient() {
+  if (!currentClient) return;
+  const statusEl = document.getElementById("formStatus");
+  try {
+    const recRes = await fetch(`/clients/${currentClient.id}/recommendations`, { method: "POST" });
+    if (!recRes.ok) throw new Error(await describeError(recRes));
+    const rec = await recRes.json();
+    renderResult(currentClient, rec);
+    statusEl.innerHTML = `<div class="status-msg ok">Recommendation #${rec.id} generated for client #${currentClient.id}.</div>`;
+  } catch (err) {
+    statusEl.innerHTML = `<div class="status-msg err">${err.message}</div>`;
+  }
+}
+
+async function submitForReview(recommendationId) {
+  const statusEl = document.getElementById("reviewSubmitStatus");
+  try {
+    const res = await fetch(`/recommendations/${recommendationId}/submit-for-review`, { method: "POST" });
+    if (!res.ok) throw new Error(await describeError(res));
+    const review = await res.json();
+    statusEl.innerHTML = `<div class="status-msg ok">Submitted as review #${review.id}. <a href="#" onclick="showTab('review'); return false;">Go to the review queue &rarr;</a></div>`;
+  } catch (err) {
+    statusEl.innerHTML = `<div class="status-msg err">${err.message}</div>`;
+  }
+}
+
+async function resolveClient(clientId) {
+  if (CLIENT_CACHE[clientId]) return CLIENT_CACHE[clientId];
+  const res = await fetch(`/clients/${clientId}`);
+  const client = res.ok ? await res.json() : { name: `Client #${clientId}` };
+  CLIENT_CACHE[clientId] = client;
+  return client;
+}
+
+function weightsSummary(weights) {
+  const entries = Object.entries(weights).filter(([,w]) => w > 0.001).sort((a,b) => b[1]-a[1]).slice(0, 4);
+  return entries.map(([t, w]) => `${(UNIVERSE[t]||{name:t}).name} (${fmtPct(w)})`).join(", ");
+}
+
+async function loadReviews() {
+  const status = document.getElementById("reviewFilter").value;
+  const url = status ? `/reviews?status=${status}` : "/reviews";
+  const res = await fetch(url);
+  const reviews = await res.json();
+  const listEl = document.getElementById("reviewList");
+
+  if (reviews.length === 0) {
+    listEl.innerHTML = `<div class="empty">No reviews in this filter.</div>`;
+    return;
+  }
+
+  const cards = await Promise.all(reviews.map(async r => {
+    const client = await resolveClient(r.client_id);
+    const diff = r.previous_weights
+      ? `<div class="grid2" style="margin-top:10px;">
+           <div class="diff-col"><h4>Previous (approved)</h4><div style="font-size:12.5px;">${weightsSummary(r.previous_weights)}</div></div>
+           <div class="diff-col"><h4>Proposed</h4><div style="font-size:12.5px;">${weightsSummary(r.proposed_weights)}</div></div>
+         </div>`
+      : `<div class="diff-col" style="margin-top:10px;"><h4>Proposed (first recommendation for this client)</h4><div style="font-size:12.5px;">${weightsSummary(r.proposed_weights)}</div></div>`;
+
+    const actions = r.status === "pending"
+      ? `<div class="actions">
+           <button class="approve" onclick="decide(${r.id}, 'approved')">Approve</button>
+           <button class="reject" onclick="decide(${r.id}, 'rejected')">Reject</button>
+         </div>
+         <textarea class="note" id="note_${r.id}" placeholder="Reviewer note (optional)" style="margin-top:8px;"></textarea>`
+      : `<p style="font-size:12.5px; color:var(--muted); margin-top:8px;">${r.reviewer_note ? "Note: " + r.reviewer_note : ""}</p>`;
+
+    return `<div class="card review-card">
+      <div class="top">
+        <span class="client">${client.name}</span>
+        <span class="badge ${r.status}">${r.status}</span>
+      </div>
+      <div class="meta">Recommendation #${r.recommendation_id} &middot; submitted ${new Date(r.created_at).toLocaleString()}</div>
+      ${diff}
+      ${actions}
+    </div>`;
+  }));
+
+  listEl.innerHTML = cards.join("");
+}
+
+async function decide(reviewId, decision) {
+  const noteEl = document.getElementById(`note_${reviewId}`);
+  const reviewer_note = noteEl ? noteEl.value : "";
+  const res = await fetch(`/reviews/${reviewId}/decide`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ decision, reviewer_note }),
+  });
+  if (res.ok) loadReviews();
+}
+
+init();
+</script>
+</body>
+</html>

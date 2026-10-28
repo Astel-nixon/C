@@ -15,16 +15,20 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import db
+import universe
 from client_profile import ClientProfile, Goal
 from data_source import get_prices
 from main import run_for_client
 
 DB_PATH = os.environ.get("WEALTHAI_DB_PATH", str(db.DEFAULT_DB_PATH))
+STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="WealthAI API", version="0.1.0")
 
@@ -141,9 +145,31 @@ class ReviewDecisionIn(BaseModel):
     reviewer_note: str = ""
 
 
+class InstrumentOut(BaseModel):
+    ticker: str
+    name: str
+    asset_class: str
+    liquidity_tier: str
+    sector_tags: list[str]
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/universe", response_model=list[InstrumentOut])
+def get_universe() -> list[InstrumentOut]:
+    """Instrument metadata the frontend needs for the allocation chart and
+    the exclusion checkboxes -- exposed here so the UI never hardcodes a
+    copy of universe.py's data that could drift out of sync with it."""
+    return [
+        InstrumentOut(
+            ticker=inst.ticker, name=inst.name, asset_class=inst.asset_class,
+            liquidity_tier=inst.liquidity_tier, sector_tags=list(inst.sector_tags),
+        )
+        for inst in universe.UNIVERSE
+    ]
 
 
 @app.post("/clients", response_model=ClientOut, status_code=201)
@@ -222,3 +248,12 @@ def decide_review(review_id: int, decision_in: ReviewDecisionIn) -> ReviewOut:
         review_id, decision_in.decision, reviewer_note=decision_in.reviewer_note, db_path=DB_PATH
     )
     return ReviewOut(**updated)
+
+
+# Mounted last, deliberately: Starlette matches routes in registration order,
+# so every API path above resolves to its own handler first. This mount only
+# catches what nothing else claimed -- "/" and any other static asset path --
+# which is what lets the frontend and the JSON API share one origin with no
+# CORS configuration at all.
+if STATIC_DIR.exists():
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
