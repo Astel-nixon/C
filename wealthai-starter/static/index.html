@@ -515,6 +515,25 @@ function weightsSummary(weights) {
   return entries.map(([t, w]) => `${(UNIVERSE[t]||{name:t}).name} (${fmtPct(w)})`).join(", ");
 }
 
+function diffNarration(prev, proposed) {
+  // Deterministic, not generated: net asset-class deltas, same arithmetic
+  // a reviewer would do by hand, just faster.
+  const classOf = t => (UNIVERSE[t] || {asset_class: "Other"}).asset_class || "Other";
+  const deltas = {};
+  for (const t of new Set([...Object.keys(prev), ...Object.keys(proposed)])) {
+    const d = (proposed[t] || 0) - (prev[t] || 0);
+    const cls = classOf(t);
+    deltas[cls] = (deltas[cls] || 0) + d;
+  }
+  const moves = Object.entries(deltas).filter(([,d]) => Math.abs(d) > 0.005).sort((a,b) => a[1]-b[1]);
+  if (moves.length === 0) return "No material change in allocation.";
+  const [dropClass, dropAmt] = moves[0];
+  const [riseClass, riseAmt] = moves[moves.length - 1];
+  if (dropClass === riseClass) return "No material change in allocation.";
+  const pct = Math.min(Math.abs(dropAmt), Math.abs(riseAmt));
+  return `Shifted roughly ${fmtPct(pct)} from ${dropClass} to ${riseClass}.`;
+}
+
 async function loadReviews() {
   const status = document.getElementById("reviewFilter").value;
   const url = status ? `/reviews?status=${status}` : "/reviews";
@@ -530,7 +549,8 @@ async function loadReviews() {
   const cards = await Promise.all(reviews.map(async r => {
     const client = await resolveClient(r.client_id);
     const diff = r.previous_weights
-      ? `<div class="grid2" style="margin-top:10px;">
+      ? `<p style="font-size:12.5px; color:var(--muted); margin:10px 0 0;">${diffNarration(r.previous_weights, r.proposed_weights)}</p>
+         <div class="grid2" style="margin-top:6px;">
            <div class="diff-col"><h4>Previous (approved)</h4><div style="font-size:12.5px;">${weightsSummary(r.previous_weights)}</div></div>
            <div class="diff-col"><h4>Proposed</h4><div style="font-size:12.5px;">${weightsSummary(r.proposed_weights)}</div></div>
          </div>`
