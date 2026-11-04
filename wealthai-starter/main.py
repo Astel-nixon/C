@@ -15,18 +15,22 @@ different plan.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import universe
 from client_profile import ClientProfile, Goal
 from data_source import get_prices
+from evidence import evidence_to_dict, extract_evidence
 from explainability import generate_explanation
 from goal_simulator import simulate_goal_probability
 from house_view import prior_returns_series
+from market_commentary import COMMENTARY
 from portfolio_optimizer import Constraints, PortfolioResult, optimize_portfolio
 from risk_engine import compute_risk_metrics
 from stress_test import run_stress_tests
 from tax import estimate_after_tax_return
+
+MIN_WEIGHT_FOR_EVIDENCE = 0.01
 
 CLIENT_A = ClientProfile(
     name="Client A",
@@ -120,6 +124,8 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         tax_result=tax_result,
     )
 
+    evidence = gather_evidence(result.weights)
+
     return {
         "portfolio": result,
         "risk_metrics": risk_metrics,
@@ -127,7 +133,34 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         "goal_result": goal_result,
         "tax_result": tax_result,
         "explanation": explanation,
+        "evidence": evidence,
     }
+
+
+def gather_evidence(weights: dict[str, float]) -> list[dict]:
+    """Supporting context for a reviewer, not an optimizer input.
+
+    One evidence record per holding above MIN_WEIGHT_FOR_EVIDENCE,
+    extracted from illustrative asset-class commentary (market_commentary.py)
+    via the same schema-validated extractor evidence.py always used --
+    this just finally calls it from somewhere. Never touches a return,
+    a weight, or a probability; see evidence.py's module docstring for
+    why that's a hard line, not an oversight.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+    records = []
+    for ticker, weight in weights.items():
+        if weight < MIN_WEIGHT_FOR_EVIDENCE:
+            continue
+        asset_class = universe.ASSET_CLASS_OF.get(ticker)
+        commentary = COMMENTARY.get(asset_class)
+        if commentary is None:
+            continue
+        evidence = extract_evidence(
+            commentary["text"], commentary["source"], timestamp, ticker=ticker,
+        )
+        records.append(evidence_to_dict(evidence))
+    return records
 
 
 def print_report(client: ClientProfile, report: dict) -> None:

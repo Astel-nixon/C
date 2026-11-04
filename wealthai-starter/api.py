@@ -126,6 +126,7 @@ class RecommendationOut(BaseModel):
     goal_result: dict | None
     tax_result: dict | None
     explanation: str
+    evidence: list[dict] = []
 
 
 class ReviewOut(BaseModel):

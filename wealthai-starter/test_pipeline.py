@@ -17,7 +17,7 @@ from evidence import extract_evidence, validate_evidence
 from explainability import generate_explanation
 from goal_simulator import simulate_goal_probability
 from house_view import prior_returns_series
-from main import build_constraints
+from main import MIN_WEIGHT_FOR_EVIDENCE, build_constraints, gather_evidence
 from portfolio_optimizer import Constraints, optimize_portfolio
 from risk_engine import compute_risk_metrics
 from stress_test import run_stress_tests
@@ -243,6 +243,19 @@ def _():
     assert 0.0 <= sim["probability_of_success"] <= 1.0
     for excluded_ticker in universe.tickers_matching_sectors(["fossil_fuels"]):
         assert result.weights.get(excluded_ticker, 0.0) < 1e-3
+
+
+@check("evidence is generated only for holdings above the weight threshold, and validates")
+def _():
+    result = optimize_portfolio(
+        PRICES, risk_tolerance=0.6, constraints=Constraints(), expected_returns_prior=PRIOR,
+    )
+    records = gather_evidence(result.weights)
+    held_tickers = {t for t, w in result.weights.items() if w >= MIN_WEIGHT_FOR_EVIDENCE}
+    assert {r["ticker"] for r in records} <= held_tickers
+    assert len(records) > 0, "a 0.6-risk-tolerance portfolio should hold something above the evidence threshold"
+    for r in records:
+        validate_evidence(r)  # re-validates every record against the schema -- no numeric field survives
 
 
 def run_all() -> int:

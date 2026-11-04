@@ -79,6 +79,19 @@ CREATE TABLE IF NOT EXISTS recommendations (
     explanation TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS recommendation_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_id INTEGER NOT NULL REFERENCES recommendations(id),
+    ticker TEXT,
+    entity TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    sentiment REAL NOT NULL,
+    confidence REAL NOT NULL,
+    source TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    summary TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS review_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recommendation_id INTEGER NOT NULL REFERENCES recommendations(id),
@@ -203,7 +216,34 @@ def save_recommendation(
                 report["explanation"],
             ),
         )
-        return cur.lastrowid
+        recommendation_id = cur.lastrowid
+        for ev in report.get("evidence", []):
+            conn.execute(
+                """INSERT INTO recommendation_evidence
+                   (recommendation_id, ticker, entity, event_type, sentiment, confidence,
+                    source, timestamp, summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    recommendation_id, ev.get("ticker"), ev["entity"], ev["event_type"],
+                    ev["sentiment"], ev["confidence"], ev["source"], ev["timestamp"], ev["summary"],
+                ),
+            )
+        return recommendation_id
+
+
+def _get_evidence(conn, recommendation_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM recommendation_evidence WHERE recommendation_id = ? ORDER BY id",
+        (recommendation_id,),
+    ).fetchall()
+    return [
+        {
+            "ticker": r["ticker"], "entity": r["entity"], "event_type": r["event_type"],
+            "sentiment": r["sentiment"], "confidence": r["confidence"], "source": r["source"],
+            "timestamp": r["timestamp"], "summary": r["summary"],
+        }
+        for r in rows
+    ]
 
 
 def get_recommendation(recommendation_id: int, db_path: Path | str = DEFAULT_DB_PATH) -> dict | None:
@@ -213,7 +253,9 @@ def get_recommendation(recommendation_id: int, db_path: Path | str = DEFAULT_DB_
         ).fetchone()
         if row is None:
             return None
-        return _recommendation_row_to_dict(row)
+        out = _recommendation_row_to_dict(row)
+        out["evidence"] = _get_evidence(conn, recommendation_id)
+        return out
 
 
 def list_recommendations(client_id: int, db_path: Path | str = DEFAULT_DB_PATH) -> list[dict]:
@@ -222,7 +264,12 @@ def list_recommendations(client_id: int, db_path: Path | str = DEFAULT_DB_PATH) 
             "SELECT * FROM recommendations WHERE client_id = ? ORDER BY created_at DESC",
             (client_id,),
         ).fetchall()
-        return [_recommendation_row_to_dict(row) for row in rows]
+        out = []
+        for row in rows:
+            d = _recommendation_row_to_dict(row)
+            d["evidence"] = _get_evidence(conn, row["id"])
+            out.append(d)
+        return out
 
 
 def _recommendation_row_to_dict(row: sqlite3.Row) -> dict:

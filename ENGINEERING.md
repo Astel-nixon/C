@@ -146,7 +146,7 @@ FastAPI's `TestClient` and booting under a real `uvicorn` process.
 | `stress_test.py` | **Verified.** Six scenarios (added a Liquidity Crunch scenario alongside the original five), shocks applied per asset class via `universe.ASSET_CLASS_OF` rather than hardcoded ticker names -- necessary once the universe grew past a handful of instruments. Magnitudes are illustrative, not calibrated to specific historical analogues yet. |
 | `goal_simulator.py` | **Verified.** Monte Carlo with a Student-t (fat-tailed) shock distribution, deliberately not i.i.d. normal; now fed the *net-of-tax* expected return from `tax.py`, not the gross optimizer output. |
 | `explainability.py` | **Verified.** Rule-based templating only -- deliberately not an LLM call. Now also narrates the tax-drag line when nonzero, and uses human-readable instrument names via `universe.py` instead of raw tickers. |
-| `evidence.py` | **Verified, NOT wired into the optimizer.** `Evidence` schema deliberately has no numeric investment fields (no expected_return, no price_target, no probability) -- only entity, event_type, sentiment, confidence, source, timestamp, summary. Default extractor is a small hand-built positive/negative keyword lexicon (the same basic idea as the Loughran-McDonald financial sentiment word lists used as a standard NLP-in-finance baseline), needs no API key, runs offline. `validate_evidence()` enforces the schema and rejects out-of-range values -- the same contract a real LLM-backed extractor would need to satisfy, so one can be dropped in later behind the same interface. Not yet connected to opportunity scoring or the optimizer in any way; it's a parallel, additive capability today. |
+| `evidence.py` / `market_commentary.py` | **Verified, wired to recommendations, never to the optimizer.** `Evidence` schema deliberately has no numeric investment fields (no expected_return, no price_target, no probability) -- only entity, event_type, sentiment, confidence, source, timestamp, summary. Default extractor is a small hand-built positive/negative keyword lexicon (the same basic idea as the Loughran-McDonald financial sentiment word lists used as a standard NLP-in-finance baseline), needs no API key, runs offline. `validate_evidence()` enforces the schema and rejects out-of-range values -- the same contract a real LLM-backed extractor would need to satisfy, so one can be dropped in later behind the same interface. `main.gather_evidence()` now runs it over illustrative per-asset-class commentary for every holding above a 1% weight threshold and persists the result as reviewer context -- still never an input to the optimizer. |
 | `db.py` | **Verified.** Plain `sqlite3`. Tables: `clients`, `goals`, `recommendations` (weights/risk-metrics/stress-results/goal-result/tax-result as JSON, plus three separate version fields -- `code_version` from git, `data_version` from `data_source`, `model_version` from `version.py`, kept separate on purpose, see that file's docstring), `review_queue` (proposed vs. previous-approved weights, status, reviewer note). |
 | `version.py` | **Verified.** `MODEL_VERSION`, bumped only when the optimization methodology itself changes (a new estimator, a changed constraint set) -- not on every commit, unlike `code_version`. |
 | `api.py` | **Verified.** FastAPI: client CRUD-lite, `POST .../recommendations` (runs the full pipeline and persists it), `POST /recommendations/{id}/submit-for-review`, `GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/decide`, `GET /universe` (instrument metadata for the frontend, sourced live from `universe.py` so it can't drift out of sync), `GET /health`. Serves `static/` via a `StaticFiles` mount added *after* every API route, so explicit routes resolve first and the frontend shares one origin with the JSON API -- no CORS configuration anywhere. No execution endpoint exists anywhere, and there is a real (if minimal) review workflow now, not just an architectural promise. |
@@ -157,10 +157,7 @@ FastAPI's `TestClient` and booting under a real `uvicorn` process.
 | `main.py` | **Verified.** Two example clients through the full pipeline, both now with real goals, exclusions (Client B), and different tax jurisdictions -- prints gross and net-of-tax return, risk metrics, six stress scenarios, goal probability, and the explanation. |
 | `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** Precomputes a 41-point risk-tolerance grid across the full 22-instrument universe and embeds it in a self-contained, slider-driven static page (human-readable instrument names and asset-class labels, no server, no CDN dependency). Not wired to call the live API -- still reads its own precomputed grid. |
 
-**Not started at all:** persistent connection between `evidence.py`'s
-output and anything that acts on it (opportunity scoring, the
-optimizer, or even just attaching evidence to a stored recommendation),
-backtesting/walk-forward validation, point-in-time data integrity,
+**Not started at all:** point-in-time data integrity,
 individual-security-level fundamental data (the universe is 22
 representative instruments, not thousands of underlying names), and
 anything that turns a recommendation into a trade.
@@ -220,14 +217,19 @@ below), run `data_vendor.py` standalone, confirm its output matches
 `USE_REAL_DATA=1 python3 main.py`. Expect some numbers to shift once
 real history replaces the synthetic generator -- that's expected.
 
-**Step 2 — Wire evidence into something.** `evidence.py` produces
-records that nothing downstream reads yet. The honest next move,
-consistent with Principle 1, is *not* to feed sentiment into the
-optimizer's return estimate directly -- it's to attach evidence records
-to a stored recommendation as supporting/contradicting context (a
-`recommendation_evidence` table, evidence surfaced alongside the
-explanation) so a human reviewer sees it, without it ever becoming a
-number the optimizer consumes.
+**Step 2 — Wire evidence into something. DONE.** `main.py`'s
+`gather_evidence()` runs the schema-validated extractor over
+illustrative asset-class commentary (`market_commentary.py`, clearly
+labeled as sample text, not live news) for every holding above a 1%
+weight threshold, stores the records in a new `recommendation_evidence`
+table, and the API/frontend surface them in a "Supporting evidence"
+section right next to the explanation. Exactly the shape Principle 1
+requires: sentiment and event type only, never a number the optimizer
+could consume, re-verified by a property test that re-validates every
+generated record against `evidence.py`'s own schema. The honest
+limitation carried forward: the commentary text is illustrative, not a
+live feed -- a real version needs the same point-in-time data integrity
+work flagged for Step 1 before the text itself can be live.
 
 **Step 3 — A frontend against the live API. DONE.** `static/index.html`
 hits `api.py` directly -- no precomputed grid, no static demo standing
