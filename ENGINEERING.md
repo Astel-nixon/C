@@ -1,9 +1,9 @@
-# ENGINEERING.md — Wealth Planning Platform
+# Engineering Notes — Wealth Planning Platform
 
 ## Read this first
 
-This file is project context, read automatically at the start of every
-coding session in this repo. It exists so the project doesn't need
+This file is project context I re-read at the start of every
+coding session on this repo. It exists so the project doesn't need
 re-explaining each time. Three kinds of content live here, marked
 differently on purpose:
 

@@ -2,7 +2,7 @@
 
 *Consolidated reference combining the original project vision, the refined technical build plan, and current implementation status. Written to be self-contained enough that I can put this down for weeks and pick it back up without re-deriving any of the reasoning.*
 
-**How to use this document:** Part A is the philosophy and product requirements (why this exists, what it needs to do). Part B is the concrete engineering plan (what to actually build it with, and why). Part C used to track current build status inline but now just points to `ENGINEERING.md` in the repo root, which is the maintained source of truth for that (see C1). If you're short on time: read `ENGINEERING.md` first for exactly where the build stands and what to do next, then Part B here for the "why" behind stack choices, then Part A for background/rationale.
+**How to use this document:** Part A is the philosophy and product requirements (why this exists, what it needs to do). Part B is the concrete engineering plan (what to actually build it with, and why). Part C used to track current build status inline but now just points to `ENGINEERING.md` in the repo root, which is the maintained source of truth for that (see C1). Read `ENGINEERING.md` first for exactly where the build stands and what to do next, then Part B here for the "why" behind stack choices, then Part A for background/rationale.
 
 **Project framing note:** this project is a personal/portfolio build, not a regulated financial business — see `ENGINEERING.md`'s framing note. Part A §39 and Part B §3 (regulatory/licensing) describe what a *real* wealth-management operation would eventually need; they're kept here as background on the domain, not as an active work item. Nothing in the current build depends on them.
 
