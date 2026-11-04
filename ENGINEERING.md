@@ -153,6 +153,7 @@ FastAPI's `TestClient` and booting under a real `uvicorn` process.
 | `static/index.html` | **Verified.** The frontend: a client-intake form (every `ClientIn` field, including dynamically-populated exclusion checkboxes pulled from `/universe`) that posts straight to the real API, a results view rendering the allocation (colored by asset class), performance/risk stats, all six stress scenarios, the goal-simulation probability bar, and the explanation text, plus a review-queue tab driving `/reviews` and `/reviews/{id}/decide` with a previous-vs-proposed weights diff. Plain HTML/CSS/vanilla JS, no framework, no build step -- one file. Confirmed end to end with a scripted Playwright run (fill form -> submit -> see the recommendation render -> submit for review -> approve it in the queue -> submit a second recommendation for the same client and confirm the diff against the first appears), not just a manual look. |
 | `test_pipeline.py` | **Verified.** 17 checks: constraint satisfaction (crypto/illiquid/concentration caps, ethical exclusions, cash floor) across the full risk-tolerance range, frontier monotonicity, capacity-caps-tolerance, VaR/CVaR ordering, tax drag behavior including the Singapore zero-tax case, evidence schema validation, goal-probability bounds, full end-to-end run with exclusions. All pass. |
 | `test_api.py` | **Verified.** 13 checks, including ethical exclusions and tax jurisdiction applied through the live API (not just `main.py`), and the review-queue workflow (submit, list pending, decide, `previous_weights` correctly carrying forward from the last *approved* recommendation on the next submission). All pass. |
+| `backtest.py` / `test_backtest.py` | **Verified.** Rolling 3y-train/1y-test walk-forward validation across 12 years of the synthetic universe, scored against an equal-weight baseline, with 4 property checks (row completeness, no NaNs, out-of-sample vol monotonic in risk tolerance, estimated vol within 5 points of realized vol). Honest finding, documented rather than hidden: risk targeting calibrates well out of sample; beating naive 1/N on Sharpe does not, at higher risk tolerance, which matches a well-known result in the literature, not a bug. Still synthetic data -- validates the methodology's own behavior, not real-market skill. |
 | `main.py` | **Verified.** Two example clients through the full pipeline, both now with real goals, exclusions (Client B), and different tax jurisdictions -- prints gross and net-of-tax return, risk metrics, six stress scenarios, goal probability, and the explanation. |
 | `export_frontier.py` / `wealth_demo_template.html` → `wealth_demo.html` | **Verified.** Precomputes a 41-point risk-tolerance grid across the full 22-instrument universe and embeds it in a self-contained, slider-driven static page (human-readable instrument names and asset-class labels, no server, no CDN dependency). Not wired to call the live API -- still reads its own precomputed grid. |
 
@@ -234,10 +235,24 @@ in for the real thing anymore. `wealth_demo.html` (the old slider demo)
 still exists for the standalone frontier-visualization use case, but
 the product demo is `static/index.html` now.
 
-**Step 4 — Backtesting / walk-forward validation.** Nothing in this
-repo has been tested against out-of-sample performance yet. Worth
-doing before trusting the shrinkage-toward-house-view estimator (or any
-future estimator) beyond a demo context.
+**Step 4 — Backtesting / walk-forward validation. DONE, for the
+synthetic universe.** `backtest.py` rolls a 3-year train / 1-year test
+window forward across 12 years of the generated price history, refits
+the shrinkage estimator and optimizer on each training window, and
+scores the resulting weights out of sample against an equal-weight
+baseline. Two honest findings, not smoothed over: risk targeting
+calibrates well (estimated volatility tracks realized out-of-sample
+volatility closely at every risk level, backed by a property test), but
+at higher risk tolerance the optimizer does not reliably beat naive
+1/N out of sample on this data -- consistent with the well-documented
+result that mean-variance optimization with an estimated return vector
+often loses to naive diversification out of sample (DeMiguel, Garlappi
+& Uppal, 2009). `test_backtest.py` locks in both properties. What this
+does not validate: real-market predictive skill -- the price history is
+still `universe.py`'s synthetic generator, so this checks that the
+methodology behaves sensibly under its own generating assumptions, not
+that it would make money on real markets. That needs real historical
+data (see Step 1).
 
 **Step 5 — Calibrate the stress scenarios.** Current shock magnitudes
 in `stress_test.py` are illustrative. Calibrating them against actual
