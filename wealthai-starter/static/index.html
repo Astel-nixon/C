@@ -113,6 +113,13 @@
     color: var(--muted); border-top: 1px solid var(--border); margin: 22px 0 12px; padding-top: 16px;
   }
   input[type=number] { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  @media print {
+    body { background: #fff; color: #111; }
+    .no-print { display: none !important; }
+    .print-only { display: block !important; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+    .wrap { max-width: none; padding: 0 12px; }
+  }
 </style>
 </head>
 <body>
@@ -120,13 +127,13 @@
   <h1>Portfolio Engine</h1>
   <p class="sub">Client intake &rarr; optimized allocation &rarr; human review. Nothing past this ever executes a trade.</p>
 
-  <nav class="tabs">
+  <nav class="tabs no-print">
     <button id="tabBtnNew" class="active" onclick="showTab('new')">New Recommendation</button>
     <button id="tabBtnReview" onclick="showTab('review')">Review Queue</button>
   </nav>
 
   <section id="panelNew" class="panel active">
-    <div class="card">
+    <div class="card no-print">
       <h2>Client profile</h2>
       <form id="clientForm">
         <div class="grid2">
@@ -464,17 +471,21 @@ function renderResult(client, rec) {
     <div class="card">
       <h2>Explanation</h2>
       <p class="explanation">${rec.explanation}</p>
-      <div class="actions" style="margin-top:14px;">
+      <div class="actions no-print" style="margin-top:14px;">
         <button class="primary" onclick="submitForReview(${rec.id}, this)">Submit for human review</button>
         <button class="secondary" onclick="regenerateForCurrentClient(this)">Re-run for this client</button>
+        <button class="secondary" onclick="window.print()">Print / save as PDF</button>
       </div>
-      <p style="color:var(--muted); font-size:12px; margin-top:8px;">
+      <p class="no-print" style="color:var(--muted); font-size:12px; margin-top:8px;">
         "Re-run" requests a fresh recommendation for client #${client.id} without creating a new
         client record -- the realistic case is re-running an existing client's numbers later, which
         is also what makes the review queue's previous-vs-proposed diff meaningful. Submitting the
         form above again always creates a brand-new client instead.
       </p>
-      <div id="reviewSubmitStatus"></div>
+      <div id="reviewSubmitStatus" class="no-print"></div>
+      <p class="print-only" style="display:none; color:var(--muted); font-size:11px; margin-top:10px;">
+        ${client.name} &middot; generated ${new Date().toLocaleDateString()} &middot; illustrative, not investment advice
+      </p>
     </div>
   `;
 }
