@@ -121,6 +121,7 @@ class RecommendationOut(BaseModel):
     expected_annual_return: float
     annual_volatility: float
     sharpe_ratio: float
+    frontier: list[tuple[float, float]] = []
     risk_metrics: dict[str, float]
     stress_results: dict[str, float]
     goal_result: dict | None

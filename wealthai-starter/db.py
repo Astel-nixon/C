@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     expected_annual_return REAL NOT NULL,
     annual_volatility REAL NOT NULL,
     sharpe_ratio REAL NOT NULL,
+    frontier TEXT NOT NULL DEFAULT '[]',
     risk_metrics TEXT NOT NULL,
     stress_results TEXT NOT NULL,
     goal_result TEXT,
@@ -203,13 +204,14 @@ def save_recommendation(
         cur = conn.execute(
             """INSERT INTO recommendations
                (client_id, created_at, code_version, data_version, model_version, weights,
-                expected_annual_return, annual_volatility, sharpe_ratio,
+                expected_annual_return, annual_volatility, sharpe_ratio, frontier,
                 risk_metrics, stress_results, goal_result, tax_result, explanation)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 client_id, datetime.now(timezone.utc).isoformat(), get_code_version(), data_version,
                 MODEL_VERSION, json.dumps(result.weights), result.expected_annual_return,
-                result.annual_volatility, result.sharpe_ratio, json.dumps(report["risk_metrics"]),
+                result.annual_volatility, result.sharpe_ratio, json.dumps(result.frontier),
+                json.dumps(report["risk_metrics"]),
                 json.dumps(report["stress_results"]),
                 json.dumps(report["goal_result"]) if report["goal_result"] else None,
                 json.dumps(report["tax_result"]) if report.get("tax_result") else None,
@@ -284,6 +286,7 @@ def _recommendation_row_to_dict(row: sqlite3.Row) -> dict:
         "expected_annual_return": row["expected_annual_return"],
         "annual_volatility": row["annual_volatility"],
         "sharpe_ratio": row["sharpe_ratio"],
+        "frontier": json.loads(row["frontier"]),
         "risk_metrics": json.loads(row["risk_metrics"]),
         "stress_results": json.loads(row["stress_results"]),
         "goal_result": json.loads(row["goal_result"]) if row["goal_result"] else None,
