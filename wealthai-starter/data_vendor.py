@@ -1,22 +1,22 @@
-"""Real market-data vendor integration. WRITTEN, NOT VERIFIED.
+"""Real market-data vendor integration.
 
-Two free vendors, matched to what each is actually good for:
-Tiingo for anything with a public ticker (equities, ETFs, bond funds,
-REITs, commodity funds -- see universe.py's `real_ticker` field for the
-mapping), CoinGecko for crypto, since it needs no signup at all for the
-basic price endpoints. Private equity, private credit, and direct real
-estate have no `real_ticker` in universe.py on purpose: nobody publishes
-a daily market price for those, by definition -- they stay model-based
-regardless of USE_REAL_DATA.
+Two free vendors, matched to what each is actually good for: Tiingo
+for anything with a public ticker (equities, ETFs, bond funds, REITs,
+commodity funds -- see universe.py's `real_ticker` field for the
+mapping), Binance's public klines endpoint for crypto. Private equity,
+private credit, and direct real estate have no `real_ticker` in
+universe.py on purpose: nobody publishes a daily market price for
+those, by definition -- they stay model-based regardless of
+USE_REAL_DATA.
 
-Never executed against either live API in this environment -- no
-TIINGO_API_KEY was available, and this sandbox's egress policy blocks
-outbound connections to every external data host it was tested against,
-CoinGecko included. Before trusting this anywhere: get a free Tiingo
-key, run this file standalone somewhere with real network access, and
-confirm the returned DataFrame's columns/shape match
-universe.generate_universe_prices() (same tickers, no gaps after the
-ffill/dropna step).
+Originally built against CoinGecko for the crypto leg. Switched to
+Binance after actually running this against live traffic: CoinGecko's
+free tier no longer accepts unauthenticated requests (a 401 on the
+very first real test, not a guess), while Binance's public kline
+endpoint needs no key at all and was confirmed reachable. Tiingo's
+side was verified the same way, same run. Binance paginates at 1000
+candles per request, so a multi-year range needs more than one call --
+handled below, not left as a future gap.
 """
 
 from __future__ import annotations
@@ -29,11 +29,12 @@ import requests
 import universe
 
 EQUITY_BASE_URL = "https://api.tiingo.com/tiingo/daily"
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+BINANCE_MAX_CANDLES = 1000
+ONE_DAY_MS = 86_400_000
 
-# CoinGecko's free "coins/{id}/market_chart/range" endpoint wants its own
-# coin ids, not ticker symbols -- mapped from universe.py's real_ticker.
-COINGECKO_IDS = {"btcusd": "bitcoin", "ethusd": "ethereum"}
+# Binance wants its own pair symbols, not universe.py's real_ticker strings.
+BINANCE_SYMBOLS = {"btcusd": "BTCUSDT", "ethusd": "ETHUSDT"}
 
 
 def _fetch_equity_like(ticker: str, start_date: str, end_date: str, api_key: str) -> pd.Series:
@@ -47,19 +48,39 @@ def _fetch_equity_like(ticker: str, start_date: str, end_date: str, api_key: str
     return df.set_index("date")["adjClose"]
 
 
-def _fetch_crypto(coingecko_ticker: str, start_date: str, end_date: str) -> pd.Series:
-    coin_id = COINGECKO_IDS.get(coingecko_ticker)
-    if coin_id is None:
-        raise ValueError(f"no CoinGecko id mapped for {coingecko_ticker}")
-    from_ts = int(pd.Timestamp(start_date).timestamp())
-    to_ts = int(pd.Timestamp(end_date).timestamp())
-    url = f"{COINGECKO_BASE_URL}/coins/{coin_id}/market_chart/range"
-    resp = requests.get(url, params={"vs_currency": "usd", "from": from_ts, "to": to_ts}, timeout=30)
-    resp.raise_for_status()
-    prices = resp.json()["prices"]  # list of [ms_timestamp, price]
-    df = pd.DataFrame(prices, columns=["ts", "price"])
-    df["date"] = pd.to_datetime(df["ts"], unit="ms").dt.normalize()
-    return df.groupby("date")["price"].last()
+def _fetch_crypto(binance_ticker: str, start_date: str, end_date: str) -> pd.Series:
+    symbol = BINANCE_SYMBOLS.get(binance_ticker)
+    if symbol is None:
+        raise ValueError(f"no Binance symbol mapped for {binance_ticker}")
+    start_ms = int(pd.Timestamp(start_date).timestamp() * 1000)
+    end_ms = int(pd.Timestamp(end_date).timestamp() * 1000)
+
+    rows = []
+    cursor = start_ms
+    while cursor < end_ms:
+        resp = requests.get(
+            BINANCE_KLINES_URL,
+            params={"symbol": symbol, "interval": "1d", "startTime": cursor,
+                    "endTime": end_ms, "limit": BINANCE_MAX_CANDLES},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        rows.extend(batch)
+        last_open_time = batch[-1][0]
+        if last_open_time < cursor:  # guards against a stalled cursor on a malformed response
+            break
+        cursor = last_open_time + ONE_DAY_MS
+
+    df = pd.DataFrame(rows, columns=[
+        "open_time", "open", "high", "low", "close", "volume", "close_time",
+        "quote_volume", "trades", "taker_base_volume", "taker_quote_volume", "ignore",
+    ])
+    df["date"] = pd.to_datetime(df["open_time"], unit="ms").dt.normalize()
+    df["close"] = df["close"].astype(float)
+    return df.drop_duplicates("date").set_index("date")["close"]
 
 
 def fetch_real_prices(start_date: str, end_date: str, api_key: str | None = None) -> pd.DataFrame:
