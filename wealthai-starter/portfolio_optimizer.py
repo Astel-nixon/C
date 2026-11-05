@@ -41,7 +41,7 @@ class PortfolioResult:
     annual_volatility: float
     sharpe_ratio: float
     risk_tolerance: float
-    frontier: list[tuple[float, float]] = field(default_factory=list)
+    frontier: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -213,18 +213,27 @@ def efficient_frontier_points(
     vol_min: float,
     vol_max: float,
     risk_free_rate: float = 0.02,
-) -> list[tuple[float, float]]:
-    """(volatility, return) pairs along the constrained frontier, for plotting."""
-    points: list[tuple[float, float]] = []
+) -> list[dict]:
+    """Points along the constrained frontier, each with the weights that
+    produce it -- not just (volatility, return) for plotting a curve, but
+    enough to show what a client's portfolio would actually look like at
+    any other point on their own frontier. efficient_risk() solves for
+    those weights internally on every call already; this just stops
+    discarding them before returning."""
+    points: list[dict] = []
     if n_points <= 0 or vol_max <= vol_min:
         return points
     for i in range(n_points):
         target = vol_min + (vol_max - vol_min) * i / (n_points - 1)
         ef = _build_ef(prices, constraints, prior)
         try:
-            ef.efficient_risk(target_volatility=target)
+            weights = ef.efficient_risk(target_volatility=target)
             ret, vol, _ = ef.portfolio_performance(risk_free_rate=risk_free_rate)
-            points.append((vol, ret))
+            points.append({
+                "volatility": vol,
+                "expected_return": ret,
+                "weights": {k: round(v, 4) for k, v in weights.items()},
+            })
         except OptimizationError:
             continue
     return points

@@ -285,28 +285,86 @@ let currentClient = null; // the client this tab's results are currently showing
 function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
 function fmtMoney(x) { return "$" + Math.round(x).toLocaleString(); }
 
-function frontierSvg(frontier, clientVol, clientRet) {
+let FRONTIER_STATE = null; // {points, x, y, actualWeights, actualVol, actualRet}
+
+function frontierSvg(frontier, actualWeights, clientVol, clientRet) {
   if (!frontier || frontier.length < 2) return "";
   const W = 560, H = 170, pad = {l: 44, r: 14, t: 10, b: 26};
   const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-  const vols = frontier.map(p => p[0]), rets = frontier.map(p => p[1]);
+  const vols = frontier.map(p => p.volatility), rets = frontier.map(p => p.expected_return);
   const volMin = Math.min(...vols, clientVol), volMax = Math.max(...vols, clientVol);
   const retMin = Math.min(...rets, clientRet), retMax = Math.max(...rets, clientRet);
   const vPad = (volMax - volMin) * 0.1 || 0.01, rPad = (retMax - retMin) * 0.1 || 0.01;
   const x = v => pad.l + (v - (volMin - vPad)) / ((volMax + vPad) - (volMin - vPad)) * plotW;
   const y = r => pad.t + plotH - (r - (retMin - rPad)) / ((retMax + rPad) - (retMin - rPad)) * plotH;
-  const points = frontier.map(p => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; margin-top:4px;">
+  const points = frontier.map(p => `${x(p.volatility).toFixed(1)},${y(p.expected_return).toFixed(1)}`).join(" ");
+
+  FRONTIER_STATE = { points: frontier, x, y, pad, plotW, actualWeights, actualVol: clientVol, actualRet: clientRet };
+
+  return `<svg id="frontierSvg" viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; margin-top:4px; cursor:crosshair; touch-action:none;">
     <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t+plotH}" stroke="var(--border)"/>
     <line x1="${pad.l}" y1="${pad.t+plotH}" x2="${pad.l+plotW}" y2="${pad.t+plotH}" stroke="var(--border)"/>
     <text x="${pad.l-6}" y="${pad.t+4}" text-anchor="end" font-size="9" fill="var(--muted)">${fmtPct(retMax+rPad)}</text>
     <text x="${pad.l-6}" y="${pad.t+plotH}" text-anchor="end" font-size="9" fill="var(--muted)">${fmtPct(retMin-rPad)}</text>
     <text x="${pad.l}" y="${H-6}" font-size="9" fill="var(--muted)">${fmtPct(volMin-vPad)}</text>
     <text x="${pad.l+plotW}" y="${H-6}" text-anchor="end" font-size="9" fill="var(--muted)">${fmtPct(volMax+vPad)}</text>
-    <polyline points="${points}" fill="none" stroke="var(--built)" stroke-width="2" opacity="0.65"/>
-    <circle cx="${x(clientVol).toFixed(1)}" cy="${y(clientRet).toFixed(1)}" r="5" fill="var(--built)" stroke="var(--surface)" stroke-width="2"/>
+    <polyline points="${points}" fill="none" stroke="var(--built)" stroke-width="2" opacity="0.5"/>
+    <line id="frontierCompareLine" x1="0" y1="0" x2="0" y2="0" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="3,3" opacity="0"/>
+    <circle id="frontierActualDot" cx="${x(clientVol).toFixed(1)}" cy="${y(clientRet).toFixed(1)}" r="5" fill="var(--built)" stroke="var(--surface)" stroke-width="2"/>
+    <circle id="frontierHoverDot" r="5" fill="var(--warn)" stroke="var(--surface)" stroke-width="2" opacity="0"/>
   </svg>
-  <p style="color:var(--muted); font-size:11.5px; margin:2px 0 0;">Efficient frontier under this client's constraints &mdash; the dot is where their risk tolerance actually lands them.</p>`;
+  <p style="color:var(--muted); font-size:11.5px; margin:2px 0 8px;">Drag along the curve to see what changes at a different risk level &mdash; the filled dot is where this client's risk tolerance actually lands them.</p>
+  <div id="frontierCompare" style="font-size:12.5px; color:var(--muted); min-height:34px;">Hover or drag along the line above.</div>`;
+}
+
+function frontierPointAtX(evt) {
+  const svg = document.getElementById("frontierSvg");
+  const rect = svg.getBoundingClientRect();
+  const scale = 560 / rect.width; // viewBox width / rendered width
+  const svgX = (evt.clientX - rect.left) * scale;
+  const { points, pad, plotW } = FRONTIER_STATE;
+  const frac = Math.max(0, Math.min(1, (svgX - pad.l) / plotW));
+  const idx = Math.round(frac * (points.length - 1));
+  return points[Math.max(0, Math.min(points.length - 1, idx))];
+}
+
+function onFrontierMove(evt) {
+  const point = frontierPointAtX(evt);
+  const { x, y, actualWeights, actualVol, actualRet } = FRONTIER_STATE;
+
+  const hoverDot = document.getElementById("frontierHoverDot");
+  hoverDot.setAttribute("cx", x(point.volatility).toFixed(1));
+  hoverDot.setAttribute("cy", y(point.expected_return).toFixed(1));
+  hoverDot.setAttribute("opacity", "1");
+
+  const line = document.getElementById("frontierCompareLine");
+  line.setAttribute("x1", x(actualVol).toFixed(1));
+  line.setAttribute("y1", y(actualRet).toFixed(1));
+  line.setAttribute("x2", x(point.volatility).toFixed(1));
+  line.setAttribute("y2", y(point.expected_return).toFixed(1));
+  line.setAttribute("opacity", "0.6");
+
+  const retDelta = point.expected_return - actualRet;
+  const volDelta = point.volatility - actualVol;
+  const sign = n => n >= 0 ? "+" : "";
+  const narration = diffNarration(actualWeights, point.weights);
+  document.getElementById("frontierCompare").innerHTML =
+    `<strong style="color:var(--ink)">${fmtPct(point.expected_return)} return, ${fmtPct(point.volatility)} volatility</strong>` +
+    ` (${sign(retDelta)}${fmtPct(retDelta)} return, ${sign(volDelta)}${fmtPct(volDelta)} volatility vs. your actual allocation)<br>${narration}`;
+}
+
+function onFrontierLeave() {
+  document.getElementById("frontierHoverDot").setAttribute("opacity", "0");
+  document.getElementById("frontierCompareLine").setAttribute("opacity", "0");
+  document.getElementById("frontierCompare").textContent = "Hover or drag along the line above.";
+}
+
+function wireFrontierInteraction() {
+  const svg = document.getElementById("frontierSvg");
+  if (!svg) return;
+  svg.addEventListener("pointermove", onFrontierMove);
+  svg.addEventListener("pointerleave", onFrontierLeave);
+  svg.addEventListener("pointerdown", evt => { svg.setPointerCapture(evt.pointerId); onFrontierMove(evt); });
 }
 
 const TOTAL_STEPS = 5;
@@ -559,7 +617,7 @@ function renderResult(client, rec) {
         <div class="stat"><div class="l">Max drawdown</div><div class="v">${fmtPct(rm.max_drawdown)}</div></div>
         <div class="stat"><div class="l">VaR / CVaR (95%, 1d)</div><div class="v" style="font-size:16px;">${fmtPct(rm.var_95_daily)} / ${fmtPct(rm.cvar_95_daily)}</div></div>
       </div>
-      ${frontierSvg(rec.frontier, rec.annual_volatility, rec.expected_annual_return)}
+      ${frontierSvg(rec.frontier, rec.weights, rec.annual_volatility, rec.expected_annual_return)}
     </div>
     <div class="card">
       <h2>Stress scenarios</h2>
@@ -587,6 +645,7 @@ function renderResult(client, rec) {
       </p>
     </div>
   `;
+  wireFrontierInteraction();
 }
 
 async function regenerateForCurrentClient(btn) {

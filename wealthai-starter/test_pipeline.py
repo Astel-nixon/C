@@ -112,11 +112,12 @@ def _():
 def _():
     result = optimize_portfolio(PRICES, risk_tolerance=0.5, constraints=_constraints(), expected_returns_prior=PRIOR, n_frontier_points=15)
     assert len(result.frontier) >= 2, "not enough frontier points computed"
-    sorted_pts = sorted(result.frontier, key=lambda p: p[0])
+    sorted_pts = sorted(result.frontier, key=lambda p: p["volatility"])
     prev_ret = -1e9
-    for vol, ret in sorted_pts:
-        assert ret >= prev_ret - 1e-6, f"return decreased along frontier: {sorted_pts}"
-        prev_ret = ret
+    for p in sorted_pts:
+        assert p["expected_return"] >= prev_ret - 1e-6, f"return decreased along frontier: {sorted_pts}"
+        prev_ret = p["expected_return"]
+        assert abs(sum(p["weights"].values()) - 1.0) < 1e-3, f"frontier point weights don't sum to 1: {p}"
 
 
 @check("risk capacity caps tolerance, never averages it")
