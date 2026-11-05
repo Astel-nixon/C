@@ -22,11 +22,18 @@ handled below, not left as a future gap.
 from __future__ import annotations
 
 import os
+import time
 
 import pandas as pd
 import requests
 
 import universe
+
+# Tiingo's free tier rate-limits aggressively enough that a tight loop over
+# ~19 tickers with no gap between requests trips it -- confirmed live, not
+# a guess: the unthrottled version returned 429 on the very first ticker
+# of a second run minutes after the first succeeded.
+TIINGO_REQUEST_DELAY_SECONDS = 1.0
 
 EQUITY_BASE_URL = "https://api.tiingo.com/tiingo/daily"
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
@@ -41,8 +48,16 @@ def _fetch_equity_like(ticker: str, start_date: str, end_date: str, api_key: str
     url = f"{EQUITY_BASE_URL}/{ticker}/prices"
     params = {"startDate": start_date, "endDate": end_date, "format": "json"}
     headers = {"Authorization": f"Token {api_key}"}
+
     resp = requests.get(url, params=params, headers=headers, timeout=30)
+    if resp.status_code == 429:
+        # One retry after a longer pause -- cheap insurance against a burst
+        # limit, distinct from an exhausted hourly/daily quota, which this
+        # won't fix and shouldn't be retried more aggressively than once.
+        time.sleep(5.0)
+        resp = requests.get(url, params=params, headers=headers, timeout=30)
     resp.raise_for_status()
+
     df = pd.DataFrame(resp.json())
     df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
     return df.set_index("date")["adjClose"]
@@ -89,10 +104,11 @@ def fetch_real_prices(start_date: str, end_date: str, api_key: str | None = None
         raise RuntimeError("TIINGO_API_KEY not set (pass api_key= or set the env var)")
 
     series: dict[str, pd.Series] = {}
-    for inst in universe.UNIVERSE:
-        if inst.real_ticker is None or inst.asset_class == "Crypto":
-            continue
+    equity_like = [inst for inst in universe.UNIVERSE if inst.real_ticker and inst.asset_class != "Crypto"]
+    for i, inst in enumerate(equity_like):
         series[inst.ticker] = _fetch_equity_like(inst.real_ticker, start_date, end_date, api_key)
+        if i < len(equity_like) - 1:
+            time.sleep(TIINGO_REQUEST_DELAY_SECONDS)
 
     for inst in universe.UNIVERSE:
         if inst.asset_class == "Crypto" and inst.real_ticker:

@@ -17,6 +17,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -195,7 +196,19 @@ def create_recommendation(client_id: int) -> RecommendationOut:
     if profile is None:
         raise HTTPException(status_code=404, detail="client not found")
 
-    prices, data_version = get_prices(years=5, seed=42)
+    try:
+        prices, data_version = get_prices(years=5, seed=42)
+    except requests.exceptions.RequestException as exc:
+        # The real-data path (USE_REAL_DATA=1) depends on two external,
+        # rate-limited APIs -- a failure there is an operational fact, not
+        # an application bug, and deserves a clean message instead of an
+        # opaque 500. Confirmed live: Tiingo's free tier returns 429 on a
+        # burst of requests, and a reviewer clicking around should see why,
+        # not a stack trace.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Live market data temporarily unavailable ({exc.__class__.__name__}). Try again shortly.",
+        )
     report = run_for_client(profile, prices)
     recommendation_id = db.save_recommendation(client_id, report, data_version, db_path=DB_PATH)
 
