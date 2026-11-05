@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     stress_results TEXT NOT NULL,
     goal_result TEXT,
     tax_result TEXT,
+    financial_health TEXT,
     explanation TEXT NOT NULL
 );
 
@@ -205,8 +206,8 @@ def save_recommendation(
             """INSERT INTO recommendations
                (client_id, created_at, code_version, data_version, model_version, weights,
                 expected_annual_return, annual_volatility, sharpe_ratio, frontier,
-                risk_metrics, stress_results, goal_result, tax_result, explanation)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                risk_metrics, stress_results, goal_result, tax_result, financial_health, explanation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 client_id, datetime.now(timezone.utc).isoformat(), get_code_version(), data_version,
                 MODEL_VERSION, json.dumps(result.weights), result.expected_annual_return,
@@ -215,6 +216,7 @@ def save_recommendation(
                 json.dumps(report["stress_results"]),
                 json.dumps(report["goal_result"]) if report["goal_result"] else None,
                 json.dumps(report["tax_result"]) if report.get("tax_result") else None,
+                json.dumps(report["financial_health"]) if report.get("financial_health") else None,
                 report["explanation"],
             ),
         )
@@ -291,6 +293,7 @@ def _recommendation_row_to_dict(row: sqlite3.Row) -> dict:
         "stress_results": json.loads(row["stress_results"]),
         "goal_result": json.loads(row["goal_result"]) if row["goal_result"] else None,
         "tax_result": json.loads(row["tax_result"]) if row["tax_result"] else None,
+        "financial_health": json.loads(row["financial_health"]) if row["financial_health"] else None,
         "explanation": row["explanation"],
     }
 

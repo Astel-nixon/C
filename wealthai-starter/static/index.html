@@ -577,6 +577,25 @@ function renderResult(client, rec) {
     </div>`;
   }
 
+  let financialHealthBlock = "";
+  if (rec.financial_health) {
+    const fh = rec.financial_health;
+    const badgeClass = status => ({
+      low: "approved", adequate: "approved", above: "approved",
+      moderate: "pending", high: "rejected", below: "rejected", unknown: "pending",
+    })[status] || "pending";
+    const row = (label, item) => item ? `<div class="evidence-row">
+      <div class="head"><span class="ticker">${label}</span><span class="badge ${badgeClass(item.status)}" style="margin-left:8px;">${item.status}</span></div>
+      <div class="summary">${item.note}</div>
+    </div>` : "";
+    financialHealthBlock = `<div class="card">
+      <h2>Before the portfolio: a quick check</h2>
+      <p class="evidence-note">Standard financial-planning rules of thumb, not analysis specific to this client beyond the numbers entered.</p>
+      ${row("Debt load", fh.debt)}
+      ${row("Emergency fund", fh.emergency_fund)}
+    </div>`;
+  }
+
   let evidenceBlock = "";
   if (rec.evidence && rec.evidence.length) {
     const rows = rec.evidence.map(ev => {
@@ -601,6 +620,7 @@ function renderResult(client, rec) {
   const card = document.getElementById("resultCard");
   card.hidden = false;
   card.innerHTML = `
+    ${financialHealthBlock}
     <div class="card">
       <h2>Recommended allocation</h2>
       ${bars}

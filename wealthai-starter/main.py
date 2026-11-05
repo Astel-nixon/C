@@ -21,6 +21,7 @@ import universe
 from client_profile import ClientProfile, Goal
 from data_source import get_prices
 from evidence import evidence_to_dict, extract_evidence
+from financial_health import debt_guidance, emergency_fund_check
 from explainability import generate_explanation
 from goal_simulator import simulate_goal_probability
 from house_view import prior_returns_series
@@ -125,6 +126,10 @@ def run_for_client(client: ClientProfile, prices) -> dict:
     )
 
     evidence = gather_evidence(result.weights)
+    financial_health = {
+        "debt": debt_guidance(client.debt_to_income),
+        "emergency_fund": emergency_fund_check(client.liquid_assets, client.annual_income),
+    }
 
     return {
         "portfolio": result,
@@ -134,6 +139,7 @@ def run_for_client(client: ClientProfile, prices) -> dict:
         "tax_result": tax_result,
         "explanation": explanation,
         "evidence": evidence,
+        "financial_health": financial_health,
     }
 
 

@@ -127,6 +127,7 @@ class RecommendationOut(BaseModel):
     stress_results: dict[str, float]
     goal_result: dict | None
     tax_result: dict | None
+    financial_health: dict | None = None
     explanation: str
     evidence: list[dict] = []
 
