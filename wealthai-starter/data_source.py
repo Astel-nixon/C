@@ -32,7 +32,7 @@ import pandas as pd
 
 import universe
 
-CACHE_TTL_SECONDS = 3600
+CACHE_TTL_SECONDS = 86400  # a day -- these are daily closes, nothing to gain from refetching sooner
 _cache: dict[tuple[str, str], tuple[float, pd.DataFrame]] = {}
 
 
