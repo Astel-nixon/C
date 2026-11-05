@@ -49,9 +49,37 @@
     width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--surface); color: var(--ink); font-size: 14px; font-family: inherit;
   }
-  input[type=range] { width: 100%; accent-color: var(--built); }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px;
+    background: var(--surface-2); outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--built); border: 3px solid var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.25);
+    cursor: pointer; margin-top: 0;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--built);
+    border: 3px solid var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: pointer;
+  }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--surface-2); }
   .range-row { display: flex; align-items: center; gap: 10px; }
   .range-row output { font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-width: 42px; text-align: right; }
+  .wizard-card { max-width: 480px; margin: 32px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 36px 34px; box-shadow: var(--shadow); }
+  .wizard-progress { display: flex; gap: 6px; margin-bottom: 28px; }
+  .wizard-progress .dot { flex: 1; height: 4px; border-radius: 2px; background: var(--border); transition: background .2s; }
+  .wizard-progress .dot.done { background: var(--built); }
+  .wizard-step-label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+  .wizard-step-title { font-family: 'Fraunces', serif; font-size: 23px; font-weight: 600; margin: 0 0 24px; }
+  .wizard-step { display: none; }
+  .wizard-step.active { display: block; }
+  .wizard-card .field { margin-bottom: 18px; }
+  .wizard-card input[type=text], .wizard-card input[type=number], .wizard-card input[type=date], .wizard-card select {
+    padding: 11px 12px; font-size: 15px;
+  }
+  .wizard-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; }
+  .wizard-nav .spacer { flex: 1; }
+  .wizard-error { color: var(--bad); font-size: 12.5px; margin-top: -8px; margin-bottom: 14px; }
   .checks { display: flex; flex-wrap: wrap; gap: 10px; }
   .checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 400; color: var(--ink); }
   button.primary {
@@ -133,40 +161,47 @@
   </nav>
 
   <section id="panelNew" class="panel active">
-    <div class="card no-print">
-      <h2>Client profile</h2>
-      <form id="clientForm">
-        <div class="grid2">
+    <form id="clientForm" class="no-print">
+      <div class="wizard-card">
+        <div class="wizard-progress" id="wizardProgress"></div>
+
+        <div class="wizard-step active" data-step="0">
+          <p class="wizard-step-label">Step 1 of 5</p>
+          <h2 class="wizard-step-title">Let's start with the basics</h2>
           <div class="field"><label>Name</label><input type="text" id="f_name" value="Alex Chen"></div>
           <div class="field"><label>Age</label><input type="number" id="f_age" value="32" min="18" max="100"></div>
         </div>
-        <div class="group-label">Financial position</div>
-        <div class="grid3">
+
+        <div class="wizard-step" data-step="1">
+          <p class="wizard-step-label">Step 2 of 5</p>
+          <h2 class="wizard-step-title">Your financial position</h2>
           <div class="field"><label>Annual income ($)</label><input type="number" id="f_income" value="120000" step="1000"></div>
           <div class="field"><label>Net worth ($)</label><input type="number" id="f_networth" value="250000" step="1000"></div>
           <div class="field"><label>Liquid assets ($)</label><input type="number" id="f_liquid" value="180000" step="1000"></div>
         </div>
 
-        <div class="group-label">Risk &amp; time horizon</div>
-        <div class="field">
-          <label>Risk tolerance</label>
-          <div class="range-row"><input type="range" id="f_risk" min="0" max="1" step="0.05" value="0.75"><output id="o_risk">0.75</output></div>
-        </div>
-        <div class="grid2">
+        <div class="wizard-step" data-step="2">
+          <p class="wizard-step-label">Step 3 of 5</p>
+          <h2 class="wizard-step-title">Risk &amp; time horizon</h2>
+          <div class="field">
+            <label>Risk tolerance</label>
+            <div class="range-row"><input type="range" id="f_risk" min="0" max="1" step="0.05" value="0.75"><output id="o_risk">0.75</output></div>
+          </div>
           <div class="field"><label>Investment horizon (years)</label><input type="number" id="f_horizon" value="25" min="0"></div>
           <div class="field"><label>Liquidity need (years until a large capital need)</label><input type="number" id="f_liqneed" value="6" min="0"></div>
-        </div>
-        <div class="field">
-          <label>Income stability</label>
-          <div class="range-row"><input type="range" id="f_stability" min="0" max="1" step="0.05" value="0.8"><output id="o_stability">0.80</output></div>
-        </div>
-        <div class="field">
-          <label>Debt-to-income ratio</label>
-          <div class="range-row"><input type="range" id="f_debt" min="0" max="1.5" step="0.05" value="0.15"><output id="o_debt">0.15</output></div>
+          <div class="field">
+            <label>Income stability</label>
+            <div class="range-row"><input type="range" id="f_stability" min="0" max="1" step="0.05" value="0.8"><output id="o_stability">0.80</output></div>
+          </div>
+          <div class="field">
+            <label>Debt-to-income ratio</label>
+            <div class="range-row"><input type="range" id="f_debt" min="0" max="1.5" step="0.05" value="0.15"><output id="o_debt">0.15</output></div>
+          </div>
         </div>
 
-        <div class="group-label">Portfolio constraints</div>
-        <div class="grid3">
+        <div class="wizard-step" data-step="3">
+          <p class="wizard-step-label">Step 4 of 5</p>
+          <h2 class="wizard-step-title">Portfolio constraints</h2>
           <div class="field">
             <label>Crypto cap</label>
             <div class="range-row"><input type="range" id="f_cryptocap" min="0" max="0.3" step="0.01" value="0.05"><output id="o_cryptocap">5%</output></div>
@@ -179,35 +214,40 @@
             <label>Minimum cash</label>
             <div class="range-row"><input type="range" id="f_mincash" min="0" max="0.3" step="0.01" value="0.05"><output id="o_mincash">5%</output></div>
           </div>
+          <div class="field">
+            <label>Tax jurisdiction</label>
+            <select id="f_tax">
+              <option value="none">None / tax-advantaged account</option>
+              <option value="us_taxable" selected>US, taxable brokerage</option>
+              <option value="uk">UK</option>
+              <option value="singapore">Singapore</option>
+              <option value="india">India</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Ethical exclusions</label>
+            <div class="checks" id="sectorChecks"></div>
+          </div>
         </div>
 
-        <div class="field">
-          <label>Tax jurisdiction</label>
-          <select id="f_tax">
-            <option value="none">None / tax-advantaged account</option>
-            <option value="us_taxable" selected>US, taxable brokerage</option>
-            <option value="uk">UK</option>
-            <option value="singapore">Singapore</option>
-            <option value="india">India</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Ethical exclusions</label>
-          <div class="checks" id="sectorChecks"></div>
-        </div>
-
-        <div class="group-label">Financial goal</div>
-        <div class="grid3">
+        <div class="wizard-step" data-step="4">
+          <p class="wizard-step-label">Step 5 of 5</p>
+          <h2 class="wizard-step-title">Your financial goal</h2>
           <div class="field"><label>Goal name</label><input type="text" id="f_goalname" value="Retirement"></div>
           <div class="field"><label>Goal target amount ($)</label><input type="number" id="f_goalamount" value="2000000" step="10000"></div>
           <div class="field"><label>Goal target date</label><input type="date" id="f_goaldate"></div>
         </div>
 
-        <button type="submit" class="primary" id="submitBtn">Generate recommendation</button>
+        <div class="wizard-error" id="wizardError" hidden></div>
+        <div class="wizard-nav">
+          <button type="button" class="secondary" id="wizardBack" onclick="prevStep()">Back</button>
+          <span class="spacer"></span>
+          <button type="button" class="primary" id="wizardNext" onclick="nextStep()">Next</button>
+          <button type="submit" class="primary" id="submitBtn" hidden>Generate recommendation</button>
+        </div>
         <div id="formStatus"></div>
-      </form>
-    </div>
+      </div>
+    </form>
 
     <div id="resultCard" hidden></div>
   </section>
@@ -269,6 +309,63 @@ function frontierSvg(frontier, clientVol, clientRet) {
   <p style="color:var(--muted); font-size:11.5px; margin:2px 0 0;">Efficient frontier under this client's constraints &mdash; the dot is where their risk tolerance actually lands them.</p>`;
 }
 
+const TOTAL_STEPS = 5;
+let currentStep = 0;
+
+function renderWizardProgress() {
+  const el = document.getElementById("wizardProgress");
+  el.innerHTML = "";
+  for (let i = 0; i < TOTAL_STEPS; i++) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i <= currentStep ? " done" : "");
+    el.appendChild(dot);
+  }
+}
+
+function showStep(n) {
+  document.querySelectorAll(".wizard-step").forEach(el => {
+    el.classList.toggle("active", parseInt(el.dataset.step, 10) === n);
+  });
+  document.getElementById("wizardBack").hidden = (n === 0);
+  document.getElementById("wizardNext").hidden = (n === TOTAL_STEPS - 1);
+  document.getElementById("submitBtn").hidden = (n !== TOTAL_STEPS - 1);
+  document.getElementById("wizardError").hidden = true;
+  renderWizardProgress();
+}
+
+function validateStep(n) {
+  const errEl = document.getElementById("wizardError");
+  const fail = msg => { errEl.textContent = msg; errEl.hidden = false; return false; };
+  if (n === 0) {
+    if (!document.getElementById("f_name").value.trim()) return fail("Enter a name.");
+    const age = parseInt(document.getElementById("f_age").value, 10);
+    if (!(age >= 18 && age <= 100)) return fail("Age must be between 18 and 100.");
+  } else if (n === 1) {
+    if (!(parseFloat(document.getElementById("f_income").value) >= 0)) return fail("Annual income must be 0 or more.");
+    if (!(parseFloat(document.getElementById("f_liquid").value) >= 0)) return fail("Liquid assets must be 0 or more.");
+    if (document.getElementById("f_networth").value === "") return fail("Enter a net worth.");
+  } else if (n === 2) {
+    if (!(parseFloat(document.getElementById("f_horizon").value) >= 0)) return fail("Investment horizon must be 0 or more.");
+    if (!(parseFloat(document.getElementById("f_liqneed").value) >= 0)) return fail("Liquidity need must be 0 or more.");
+  } else if (n === 4) {
+    if (!document.getElementById("f_goalname").value.trim()) return fail("Enter a goal name.");
+    if (!(parseFloat(document.getElementById("f_goalamount").value) > 0)) return fail("Goal target amount must be greater than 0.");
+    if (!document.getElementById("f_goaldate").value) return fail("Pick a goal target date.");
+  }
+  return true;
+}
+
+function nextStep() {
+  if (!validateStep(currentStep)) return;
+  currentStep = Math.min(currentStep + 1, TOTAL_STEPS - 1);
+  showStep(currentStep);
+}
+
+function prevStep() {
+  currentStep = Math.max(currentStep - 1, 0);
+  showStep(currentStep);
+}
+
 function showTab(which) {
   document.getElementById("panelNew").classList.toggle("active", which === "new");
   document.getElementById("panelReview").classList.toggle("active", which === "review");
@@ -312,6 +409,7 @@ async function init() {
   });
 
   document.getElementById("clientForm").addEventListener("submit", onSubmit);
+  showStep(0);
 }
 
 function checkedSectors() {
@@ -320,6 +418,7 @@ function checkedSectors() {
 
 async function onSubmit(ev) {
   ev.preventDefault();
+  if (!validateStep(4)) return; // guards Enter-key submission bypassing the Next-click check
   const btn = document.getElementById("submitBtn");
   const statusEl = document.getElementById("formStatus");
   const originalLabel = btn.textContent;
