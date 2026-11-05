@@ -29,11 +29,15 @@ import requests
 
 import universe
 
-# Tiingo's free tier rate-limits aggressively enough that a tight loop over
-# ~19 tickers with no gap between requests trips it -- confirmed live, not
-# a guess: the unthrottled version returned 429 on the very first ticker
-# of a second run minutes after the first succeeded.
-TIINGO_REQUEST_DELAY_SECONDS = 1.0
+# A small, deliberate gap, not a heavy one. The very first live run today
+# had zero delay and completed cleanly and fast -- the 429s that showed up
+# on later runs look like an hourly/daily quota from repeated testing, not
+# a burst limiter, so a long per-request sleep buys little protection
+# while directly costing response time. A 1s-per-ticker version pushed
+# the real-data path past Render's gateway timeout (502, confirmed live)
+# before the request ever got a chance to finish. This stays short on
+# purpose.
+TIINGO_REQUEST_DELAY_SECONDS = 0.15
 
 EQUITY_BASE_URL = "https://api.tiingo.com/tiingo/daily"
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
@@ -49,13 +53,12 @@ def _fetch_equity_like(ticker: str, start_date: str, end_date: str, api_key: str
     params = {"startDate": start_date, "endDate": end_date, "format": "json"}
     headers = {"Authorization": f"Token {api_key}"}
 
-    resp = requests.get(url, params=params, headers=headers, timeout=30)
-    if resp.status_code == 429:
-        # One retry after a longer pause -- cheap insurance against a burst
-        # limit, distinct from an exhausted hourly/daily quota, which this
-        # won't fix and shouldn't be retried more aggressively than once.
-        time.sleep(5.0)
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
+    # No retry on 429, deliberately: a retry-with-sleep on even a few of the
+    # 19 tickers compounds back into the same gateway-timeout risk that
+    # dropping the per-request delay was meant to fix. Failing fast and
+    # surfacing the clean 503 from api.py is the safer trade here -- a
+    # slow eventual failure is worse than a fast clear one.
+    resp = requests.get(url, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
 
     df = pd.DataFrame(resp.json())
@@ -77,7 +80,7 @@ def _fetch_crypto(binance_ticker: str, start_date: str, end_date: str) -> pd.Ser
             BINANCE_KLINES_URL,
             params={"symbol": symbol, "interval": "1d", "startTime": cursor,
                     "endTime": end_ms, "limit": BINANCE_MAX_CANDLES},
-            timeout=30,
+            timeout=15,
         )
         resp.raise_for_status()
         batch = resp.json()
